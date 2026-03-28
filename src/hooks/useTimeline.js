@@ -35,27 +35,23 @@ export const useTimeline = () => {
         setClips(updatedClips);
     }, [setClips]);
 
-    const splitClip = useCallback((currentTime) => {
+    const splitClip = useCallback((clipId, time) => {
         setClips(prev => {
-            const clipToSplit = prev.find(clip => {
-                const start = clip.startPosition / 100;
-                const end = start + clip.duration;
-                return currentTime > start && currentTime < end;
-            });
-
+            const clipToSplit = prev.find(clip => clip.id === clipId);
             if (!clipToSplit) return prev;
 
-            const splitPoint = currentTime - (clipToSplit.startPosition / 100);
+            const splitPoint = time - (clipToSplit.startPosition / 100);
+            if (splitPoint <= 0 || splitPoint >= clipToSplit.duration) return prev;
 
             const leftClip = {
                 ...clipToSplit,
-                id: Date.now() + Math.random(),
+                id: `${clipToSplit.id}_left_${Math.random().toString(36).substr(2, 9)}`,
                 duration: splitPoint,
             };
 
             const rightClip = {
                 ...clipToSplit,
-                id: Date.now() + Math.random() + 1,
+                id: `${clipToSplit.id}_right_${Math.random().toString(36).substr(2, 9)}`,
                 duration: clipToSplit.duration - splitPoint,
                 startPosition: clipToSplit.startPosition + (splitPoint * 100),
                 videoOffset: (clipToSplit.videoOffset || 0) + splitPoint,

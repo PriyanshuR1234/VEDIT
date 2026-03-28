@@ -9,6 +9,8 @@ const Timeline = ({
     setZoom, 
     clips, 
     currentVideo, 
+    activeClip,
+    activeClipId,
     currentTime, 
     onClipClick, 
     onClipMouseDown,
@@ -127,20 +129,22 @@ const Timeline = ({
 
     const videoClips = clips.filter(c => c.trackIndex >= 0);
     const maxOccupiedVideoTrack = videoClips.length > 0 ? Math.max(...videoClips.map(c => c.trackIndex)) : -1;
-    const allowedMaxTrack = Math.max(0, clips.length - 1);
-    const renderMaxTrack = Math.min(allowedMaxTrack, maxOccupiedVideoTrack + 1);
+    // Always show at least 2 tracks (Video 1 & 2), or maxOccupied + 1 for expansion
+    const renderMaxTrack = Math.max(1, maxOccupiedVideoTrack + 1);
 
     const tracks = [];
+    tracks.push({ index: -2, label: 'Text', icon: Type, height: 40 });
+    tracks.push({ index: -1, label: 'Audio', icon: Music, height: 40 });
     for (let i = 0; i <= renderMaxTrack; i++) {
         tracks.push({ index: i, label: `Video ${i + 1}`, icon: Video, height: 96 });
     }
-    tracks.push({ index: -1, label: 'Audio', icon: Music, height: 40 });
-    tracks.push({ index: -2, label: 'Text', icon: Type, height: 40 });
 
-    const getTrackY = (trackIndex) => {
+    const timelineContentHeight = (renderMaxTrack + 1) * 96 + 40 + 40 + 32; // tracks + ruler
+
+    const getTrackY = (index) => {
         let y = 32;
         for (const t of tracks) {
-            if (t.index === trackIndex) {
+            if (t.index === index) {
                 return y;
             }
             y += t.height;
@@ -153,7 +157,7 @@ const Timeline = ({
             <TimelineHeader 
                 zoom={zoom}
                 setZoom={setZoom}
-                currentVideo={currentVideo}
+                activeClip={activeClip}
                 onSplit={onSplit}
                 onDelete={onDelete}
                 handleUploadClick={handleUploadClick}
@@ -164,12 +168,18 @@ const Timeline = ({
                 <div className="w-24 bg-gray-900 border-r border-gray-800 flex flex-col z-20 flex-shrink-0">
                     <div className="h-8 border-b border-gray-800 bg-gray-900/50 flex-shrink-0" />
                     
-                    <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar" 
-                         onScroll={(e) => {
-                             if (timelineRef.current) {
-                                 timelineRef.current.scrollTop = e.target.scrollTop;
-                             }
-                         }}>
+                    <div 
+                        className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar" 
+                        ref={(el) => {
+                            if (el) {
+                                el.onscroll = (e) => {
+                                    if (timelineRef.current && timelineRef.current.scrollTop !== e.target.scrollTop) {
+                                        timelineRef.current.scrollTop = e.target.scrollTop;
+                                    }
+                                };
+                            }
+                        }}
+                    >
                         {tracks.map(track => (
                             <TrackHeader 
                                 key={track.index}
@@ -186,6 +196,12 @@ const Timeline = ({
                     ref={timelineRef}
                     className="flex-1 overflow-auto relative custom-scrollbar select-none"
                     onMouseDown={handleTimelineMouseDown}
+                    onScroll={(e) => {
+                        const headerContainer = e.target.previousSibling?.querySelector('.overflow-y-auto');
+                        if (headerContainer && headerContainer.scrollTop !== e.target.scrollTop) {
+                            headerContainer.scrollTop = e.target.scrollTop;
+                        }
+                    }}
                 >
                     <TimelineGrid 
                         timelineWidth={timelineWidth}
@@ -193,12 +209,14 @@ const Timeline = ({
                         tickInterval={tickInterval}
                         tracks={tracks}
                         clips={clips}
+                        activeClipId={activeClipId}
                         currentVideo={currentVideo}
                         currentTime={currentTime}
                         onClipClick={onClipClick}
                         onClipMouseDown={onClipMouseDown}
                         onClipResizeMouseDown={onClipResizeMouseDown}
                         getTrackY={getTrackY}
+                        height={timelineContentHeight}
                     />
                 </div>
             </div>

@@ -21,7 +21,7 @@ const Header = ({ isLeftSidebarOpen, setIsLeftSidebarOpen, isRightSidebarOpen, s
           <div className="bg-indigo-600 p-1.5 rounded-lg shadow-lg shadow-indigo-500/20">
             <Film className="w-6 h-6" />
           </div>
-          <span className="tracking-tight">VEDIT</span>
+          <span className="tracking-tight">NeuralCut AI</span>
         </div>
         <span className="text-gray-500 text-sm border-l border-gray-800 pl-4">Untitled Project</span>
       </div>
@@ -51,7 +51,10 @@ const Header = ({ isLeftSidebarOpen, setIsLeftSidebarOpen, isRightSidebarOpen, s
           <Upload className="w-4 h-4" />
           Import
         </button>
-        <button className="flex items-center gap-2 px-4 py-2 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg border border-gray-700 text-sm font-medium transition-colors">
+        <button 
+          className="flex items-center gap-2 px-4 py-2 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg border border-gray-700 text-sm font-medium transition-colors"
+          onClick={() => videoEditorRef.current?.handleExport?.()}
+        >
           <Download className="w-4 h-4" />
           Export
         </button>

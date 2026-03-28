@@ -68,8 +68,8 @@ export const useDragDrop = (clips, setClips, zoom, timelineRef) => {
 
             const videoClips = clips.filter(c => c.trackIndex >= 0);
             const maxOccupiedVideoTrack = videoClips.length > 0 ? Math.max(...videoClips.map(c => c.trackIndex)) : -1;
-            const allowedMaxTrack = Math.max(0, clips.length - 1);
-            const renderMaxTrack = Math.min(allowedMaxTrack, maxOccupiedVideoTrack + 1);
+            // Match the new 2-default-track logic
+            const renderMaxTrack = Math.max(1, maxOccupiedVideoTrack + 1);
 
             const totalVideoHeight = (renderMaxTrack + 1) * videoTrackHeight;
             let targetTrack = 0;
@@ -84,44 +84,93 @@ export const useDragDrop = (clips, setClips, zoom, timelineRef) => {
             
             // Enforce track restrictions based on clip type
             if (draggedClip.type === 'audio') {
-                targetTrack = -1; // Force audio to audio track
+                targetTrack = -1;
             } else if (draggedClip.type === 'text') {
-                targetTrack = -2; // Force text to text track
+                targetTrack = -2;
             } else if (draggedClip.type === 'video' || draggedClip.type === 'image') {
-                // If it's video/image and aimed at audio/text tracks, force it to the main video track (0)
-                if (targetTrack < 0) {
-                    targetTrack = 0;
-                }
+                if (targetTrack < 0) targetTrack = 0;
             }
 
             setClips(prevClips => {
-                let updatedClips = prevClips.map(clip =>
-                    clip.id === draggedClip.id
-                        ? { ...clip, startPosition: newPosition / zoom, trackIndex: targetTrack }
-                        : clip
-                );
+                const rawNewStart = newPosition / zoom;
+                const draggedDurationUnits = draggedClip.duration * 100;
+                let finalNewStart = rawNewStart;
 
-                updatedClips.sort((a, b) => a.startPosition - b.startPosition);
-                const movedClip = updatedClips.find(c => c.id === draggedClip.id);
-                if (!movedClip) return prevClips;
+                // 1. Initial pass: See if we should snap to avoid overlap (under 50% threshold)
+                // Filter other clips on the SAME target track
+                const otherClipsOnTrack = prevClips.filter(c => c.trackIndex === targetTrack && c.id !== draggedClip.id);
+                
+                let shouldRipple = false;
+                let rippleTarget = null;
 
-                for (let i = 0; i < updatedClips.length; i++) {
-                    const clip = updatedClips[i];
-                    if (clip.id === movedClip.id) continue;
-                    if (clip.trackIndex !== movedClip.trackIndex) continue;
-
-                    const movedStart = movedClip.startPosition;
-                    const movedEnd = movedStart + (movedClip.duration * 100);
+                for (const clip of otherClipsOnTrack) {
                     const clipStart = clip.startPosition;
                     const clipEnd = clipStart + (clip.duration * 100);
+                    
+                    // Check for collision
+                    if (rawNewStart < clipEnd && (rawNewStart + draggedDurationUnits) > clipStart) {
+                        // Calculate overlap amount
+                        const overlapStart = Math.max(rawNewStart, clipStart);
+                        const overlapEnd = Math.min(rawNewStart + draggedDurationUnits, clipEnd);
+                        const overlapDuration = overlapEnd - overlapStart;
+                        const clipDurationUnits = clip.duration * 100;
+                        
+                        // Overlap percentage relative to the *colliding* clip
+                        const overlapPercent = overlapDuration / clipDurationUnits;
 
-                    if (movedStart < clipEnd && movedEnd > clipStart) {
-                        if (movedStart <= clipStart) {
-                           clip.startPosition = movedEnd; 
+                        if (overlapPercent >= 0.5) {
+                            shouldRipple = true;
+                            rippleTarget = clip;
+                            // When rippling, we keep the raw position (the user is "forcing" it)
+                            break; 
+                        } else {
+                            // Snap to outside
+                            if (rawNewStart + draggedDurationUnits / 2 > clipStart + clipDurationUnits / 2) {
+                                // Dragged mostly to the right of this clip, snap to right
+                                finalNewStart = clipEnd;
+                            } else {
+                                // Dragged mostly to the left, snap to left
+                                finalNewStart = Math.max(0, clipStart - draggedDurationUnits);
+                            }
                         }
                     }
                 }
-                return updatedClips;
+
+                // 2. Update clips based on determined positions
+                let updatedClips = prevClips.map(clip =>
+                    clip.id === draggedClip.id
+                        ? { ...clip, startPosition: finalNewStart, trackIndex: targetTrack }
+                        : { ...clip }
+                );
+
+                if (!shouldRipple) return updatedClips;
+
+                // 3. Apply Ripple Push (if threshold met)
+                const movedClip = updatedClips.find(c => c.id === draggedClip.id);
+                const movedEnd = movedClip.startPosition + (movedClip.duration * 100);
+
+                const sameTrackClips = updatedClips
+                    .filter(c => c.trackIndex === targetTrack && c.id !== movedClip.id)
+                    .sort((a, b) => a.startPosition - b.startPosition);
+
+                const clipUpdates = {};
+                let currentPushThreshold = movedEnd;
+                let hasRippled = false;
+
+                for (const clip of sameTrackClips) {
+                    const clipStart = clip.startPosition;
+                    if (clipStart < currentPushThreshold) {
+                        clipUpdates[clip.id] = { ...clip, startPosition: currentPushThreshold };
+                        currentPushThreshold += (clip.duration * 100);
+                        hasRippled = true;
+                    }
+                }
+
+                if (!hasRippled) return updatedClips;
+
+                return updatedClips
+                    .map(clip => clipUpdates[clip.id] || clip)
+                    .sort((a, b) => a.startPosition - b.startPosition);
             });
     }, [draggedClip, dragOffset, zoom, clips, timelineRef, setClips, resizeHandle]);
 

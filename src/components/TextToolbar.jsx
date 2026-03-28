@@ -1,5 +1,5 @@
 import React from 'react';
-import { Type, Plus, Palette, Type as TypeIcon } from 'lucide-react';
+import { Type, Plus, Palette, Type as TypeIcon, Bold, Italic } from 'lucide-react';
 
 const TextToolbar = ({ onAddText, selectedTextClip, onUpdateTextClip }) => {
     return (
@@ -26,6 +26,21 @@ const TextToolbar = ({ onAddText, selectedTextClip, onUpdateTextClip }) => {
                         />
                     </div>
 
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => onUpdateTextClip(selectedTextClip.id, { fontWeight: selectedTextClip.fontWeight === 'bold' ? 'normal' : 'bold' })}
+                            className={`p-1.5 rounded transition-colors ${selectedTextClip.fontWeight === 'bold' ? 'bg-indigo-500/20 text-indigo-400' : 'text-gray-400 hover:bg-gray-800'}`}
+                        >
+                            <Bold className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => onUpdateTextClip(selectedTextClip.id, { fontStyle: selectedTextClip.fontStyle === 'italic' ? 'normal' : 'italic' })}
+                            className={`p-1.5 rounded transition-colors ${selectedTextClip.fontStyle === 'italic' ? 'bg-indigo-500/20 text-indigo-400' : 'text-gray-400 hover:bg-gray-800'}`}
+                        >
+                            <Italic className="w-4 h-4" />
+                        </button>
+                    </div>
+
                     <div className="flex items-center gap-2">
                         <Palette className="w-4 h-4 text-gray-400" />
                         <input
@@ -35,6 +50,21 @@ const TextToolbar = ({ onAddText, selectedTextClip, onUpdateTextClip }) => {
                             className="w-8 h-8 rounded cursor-pointer bg-transparent border-none"
                         />
                     </div>
+                    
+                    <div className="w-px h-6 bg-gray-700" />
+                    
+                    <select
+                        value={selectedTextClip.transition || 'none'}
+                        onChange={(e) => onUpdateTextClip(selectedTextClip.id, { transition: e.target.value })}
+                        className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    >
+                        <option value="none">No Transition</option>
+                        <option value="fade">Fade In</option>
+                        <option value="slide_up">Slide Up</option>
+                        <option value="typewriter">Typewriter</option>
+                    </select>
+
+                    <div className="w-px h-6 bg-gray-700" />
 
                     <input
                         type="text"

@@ -1,31 +1,31 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Header from './Header';
-import LeftSidebar from './LeftSidebar';
+import LeftSidebar from './left-panel';
 import VideoEditor from './VideoEditor';
-import RightSidebar from './RightSidebar';
+import RightPanel from './right-panel';
 
 const Layout = () => {
     const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
     const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
     const [leftWidth, setLeftWidth] = useState(320);
     const [rightWidth, setRightWidth] = useState(320);
-    const isDraggingLeft = useRef(false);
-    const isDraggingRight = useRef(false);
+    const [isDraggingLeft, setIsDraggingLeft] = useState(false);
+    const [isDraggingRight, setIsDraggingRight] = useState(false);
     const videoEditorRef = useRef(null);
 
     const handleMouseMove = useCallback((e) => {
-        if (isDraggingLeft.current) {
+        if (isDraggingLeft) {
             setLeftWidth(Math.max(200, Math.min(e.clientX, 600)));
-        } else if (isDraggingRight.current) {
+        } else if (isDraggingRight) {
             setRightWidth(Math.max(200, Math.min(window.innerWidth - e.clientX, 600)));
         }
-    }, []);
+    }, [isDraggingLeft, isDraggingRight]);
 
     const handleMouseUp = useCallback(() => {
-        isDraggingLeft.current = false;
-        isDraggingRight.current = false;
+        if (isDraggingLeft) setIsDraggingLeft(false);
+        if (isDraggingRight) setIsDraggingRight(false);
         document.body.style.cursor = 'default';
-    }, []);
+    }, [isDraggingLeft, isDraggingRight]);
 
     useEffect(() => {
         window.addEventListener('mousemove', handleMouseMove);
@@ -51,10 +51,10 @@ const Layout = () => {
                     className={`flex-shrink-0 overflow-hidden ${isLeftSidebarOpen ? 'opacity-100' : 'opacity-0'}`}
                     style={{ 
                         width: isLeftSidebarOpen ? `${leftWidth}px` : '0px',
-                        transition: isDraggingLeft.current ? 'none' : 'width 300ms ease-in-out, opacity 300ms ease-in-out'
+                        transition: isDraggingLeft ? 'none' : 'width 300ms ease-in-out, opacity 300ms ease-in-out'
                     }}
                 >
-                    <LeftSidebar />
+                    <LeftSidebar videoEditorRef={videoEditorRef} />
                 </div>
 
                 {/* Left Drag Handle */}
@@ -62,7 +62,7 @@ const Layout = () => {
                     <div 
                         className="w-1.5 flex-shrink-0 cursor-col-resize hover:bg-indigo-500 bg-gray-800 transition-colors z-20"
                         onMouseDown={() => {
-                            isDraggingLeft.current = true;
+                            setIsDraggingLeft(true);
                             document.body.style.cursor = 'col-resize';
                         }}
                     />
@@ -75,7 +75,7 @@ const Layout = () => {
                     <div 
                         className="w-1.5 flex-shrink-0 cursor-col-resize hover:bg-indigo-500 bg-gray-800 transition-colors z-20"
                         onMouseDown={() => {
-                            isDraggingRight.current = true;
+                            setIsDraggingRight(true);
                             document.body.style.cursor = 'col-resize';
                         }}
                     />
@@ -86,10 +86,10 @@ const Layout = () => {
                     className={`flex-shrink-0 overflow-hidden ${isRightSidebarOpen ? 'opacity-100' : 'opacity-0'}`}
                     style={{ 
                         width: isRightSidebarOpen ? `${rightWidth}px` : '0px',
-                        transition: isDraggingRight.current ? 'none' : 'width 300ms ease-in-out, opacity 300ms ease-in-out'
+                        transition: isDraggingRight ? 'none' : 'width 300ms ease-in-out, opacity 300ms ease-in-out'
                     }}
                 >
-                    <RightSidebar />
+                    <RightPanel videoEditorRef={videoEditorRef} />
                 </div>
             </div>
         </div>

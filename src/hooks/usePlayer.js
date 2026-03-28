@@ -54,9 +54,10 @@ export const usePlayer = (clips, duration) => {
                 videoRef.current.currentTime = videoTime;
             }
             
-            // Apply muted state
+            // Apply volume and muted state
             if (activeClip.type === 'video') {
                 videoRef.current.muted = activeClip.muted || false;
+                videoRef.current.volume = activeClip.volume !== undefined ? activeClip.volume : 1;
             }
         }
     }, [currentVideo]);
@@ -80,12 +81,15 @@ export const usePlayer = (clips, duration) => {
                 audioElementsRef.current[clip.id] = audio;
             }
 
+            // Apply volume
+            audio.volume = clip.volume !== undefined ? clip.volume : 1;
+
             const start = clip.startPosition / 100;
             const end = start + clip.duration;
 
             if (time >= start && time < end) {
-                // Should be playing
-                const relativeTime = time - start;
+                // Account for split offset
+                const relativeTime = (time - start) + (clip.audioOffset || clip.videoOffset || 0);
                 
                 // Sync time if drifted
                 if (Math.abs(audio.currentTime - relativeTime) > 0.2) {
@@ -172,6 +176,25 @@ export const usePlayer = (clips, duration) => {
             }
         }
     }, [currentTime, determineActiveClip, syncVideo, syncAudio, isPlaying]);
+
+    // High-priority property sync (Volume, Opacity) even when paused or animation loop is delayed
+    useEffect(() => {
+        // Sync active video volume
+        if (videoRef.current) {
+            const activeClip = determineActiveClip(currentTime);
+            if (activeClip && activeClip.type === 'video') {
+                videoRef.current.volume = activeClip.volume !== undefined ? activeClip.volume : 1;
+            }
+        }
+
+        // Sync all audio element volumes
+        Object.keys(audioElementsRef.current).forEach(id => {
+            const clip = clips.find(c => c.id.toString() === id);
+            if (clip && clip.type === 'audio') {
+                audioElementsRef.current[id].volume = clip.volume !== undefined ? clip.volume : 1;
+            }
+        });
+    }, [clips, currentTime, determineActiveClip]);
 
     // Handle video load to seek to correct time immediately
     useEffect(() => {

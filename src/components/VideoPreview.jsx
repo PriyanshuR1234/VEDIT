@@ -1,6 +1,261 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Upload, Volume2, VolumeX, Maximize } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Crop, Move, X, Check } from 'lucide-react';
+import { Rnd } from 'react-rnd';
 
+// ─── Crop Overlay ───────────────────────────────────────────────────
+const ASPECTS = [
+    { label: 'Free', value: 'free' },
+    { label: '16:9', value: '16/9' },
+    { label: '9:16', value: '9/16' },
+    { label: '1:1', value: '1/1' },
+    { label: '4:3', value: '4/3' },
+    { label: '3:4', value: '3/4' },
+];
+
+const CropOverlay = ({ clip, onApply, onClose }) => {
+    const [aspect, setAspect] = useState(clip?.crop?.aspect || 'free');
+    return (
+        <div className="absolute inset-0 z-50 bg-black/75 flex items-center justify-center backdrop-blur-sm px-4">
+            <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 w-72 shadow-2xl">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Crop className="w-4 h-4 text-indigo-400" /> Transform & Style
+                    </h3>
+                    <button onClick={onClose} className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"><X className="w-4 h-4" /></button>
+                </div>
+                
+                <p className="text-[10px] text-gray-500 mb-4 uppercase tracking-widest font-bold">Manual Overlay Controls</p>
+                <div className="space-y-4">
+                    <div className="flex gap-2">
+                        <button onClick={() => onApply({ hasBorder: !clip?.hasBorder })}
+                            className={`flex-1 py-2 rounded-xl text-xs border transition-all ${clip?.hasBorder ? 'bg-white text-black border-white' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>
+                            {clip?.hasBorder ? '✅ White Border' : '⬜ Add Border'}
+                        </button>
+                        <button onClick={() => onApply({ hasPopIn: !clip?.hasPopIn })}
+                            className={`flex-1 py-2 rounded-xl text-xs border transition-all ${clip?.hasPopIn ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>
+                            {clip?.hasPopIn ? '✅ Pop-In Hook' : '🚀 Pop-In Effect'}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-gray-800">
+                    <p className="text-[10px] text-gray-500 mb-3 uppercase tracking-widest font-bold">Aspect Ratio (Main Stage)</p>
+                    <div className="grid grid-cols-3 gap-2 mb-4">
+                        {ASPECTS.map(a => (
+                            <button key={a.value} onClick={() => { setAspect(a.value); onApply({ aspect: a.value }); }}
+                                className={`p-2 rounded-lg text-xs font-medium border transition-all ${
+                                    aspect === a.value
+                                        ? 'bg-indigo-600 border-indigo-500 text-white'
+                                        : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-indigo-500/60'
+                                }`}>
+                                {a.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex gap-2">
+                        <button onClick={() => { onApply({ aspect: 'free' }); onClose(); }}
+                            className="flex-1 py-2 rounded-xl text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 transition-colors">Reset</button>
+                        <button onClick={onClose}
+                            className="flex-1 py-2 rounded-xl text-xs text-white bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center justify-center gap-1">
+                            <Check className="w-3 h-3" /> Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─── Transform Overlay ─────────────────────────────────────────────
+const TransformOverlay = ({ clip, onApply, onClose }) => {
+    const t = clip?.transform || {};
+    const [rotation, setRotation] = useState(t.rotation ?? 0);
+    const [scale, setScale] = useState(t.scale ?? 100);
+    const [flipH, setFlipH] = useState(t.flipH ?? false);
+    const [flipV, setFlipV] = useState(t.flipV ?? false);
+
+    const apply = (updates) => {
+        const next = { rotation, scale, flipH, flipV, ...updates };
+        onApply(next);
+    };
+
+    return (
+        <div className="absolute inset-0 z-50 bg-black/75 flex items-center justify-center backdrop-blur-sm">
+            <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 w-72 shadow-2xl">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Move className="w-4 h-4 text-indigo-400" /> Transform
+                    </h3>
+                    <button onClick={onClose} className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"><X className="w-4 h-4" /></button>
+                </div>
+                <div className="space-y-4">
+                    <div>
+                        <div className="flex justify-between text-xs mb-1">
+                            <span className="text-gray-400">Rotation</span>
+                            <span className="text-indigo-300 font-mono">{rotation}°</span>
+                        </div>
+                        <input type="range" min="-180" max="180" value={rotation}
+                            onChange={e => { const v = Number(e.target.value); setRotation(v); apply({ rotation: v }); }}
+                            className="w-full accent-indigo-500 cursor-pointer" />
+                        <div className="flex gap-1 mt-1.5">
+                            {[-90, 0, 90, 180].map(r => (
+                                <button key={r} onClick={() => { setRotation(r); apply({ rotation: r }); }}
+                                    className={`flex-1 py-1 rounded-lg text-[10px] border transition-all ${rotation === r ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-indigo-500/60'}`}>
+                                    {r}°
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <div className="flex justify-between text-xs mb-1">
+                            <span className="text-gray-400">Scale</span>
+                            <span className="text-indigo-300 font-mono">{scale}%</span>
+                        </div>
+                        <input type="range" min="10" max="200" value={scale}
+                            onChange={e => { const v = Number(e.target.value); setScale(v); apply({ scale: v }); }}
+                            className="w-full accent-indigo-500 cursor-pointer" />
+                    </div>
+                    <div>
+                        <span className="text-xs text-gray-400 block mb-1.5">Flip</span>
+                        <div className="flex gap-2">
+                            <button onClick={() => { const v = !flipH; setFlipH(v); apply({ flipH: v }); }}
+                                className={`flex-1 py-2 rounded-xl text-xs border transition-all ${flipH ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-indigo-500/60'}`}>
+                                ↔ Horizontal
+                            </button>
+                            <button onClick={() => { const v = !flipV; setFlipV(v); apply({ flipV: v }); }}
+                                className={`flex-1 py-2 rounded-xl text-xs border transition-all ${flipV ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-indigo-500/60'}`}>
+                                ↕ Vertical
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                    <button onClick={() => { const def = { rotation: 0, scale: 100, flipH: false, flipV: false }; setRotation(0); setScale(100); setFlipH(false); setFlipV(false); onApply(def); }}
+                        className="flex-1 py-2 rounded-xl text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 transition-colors">Reset</button>
+                    <button onClick={onClose}
+                        className="flex-1 py-2 rounded-xl text-xs text-white bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center justify-center gap-1">
+                        <Check className="w-3 h-3" /> Done
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─── Overlay Effects Panel ─────────────────────────────────────────
+const OVERLAY_EFFECTS = [
+    { label: 'None', filter: 'none', icon: '⚪' },
+    { label: 'Grayscale', filter: 'grayscale(1)', icon: '🎞️' },
+    { label: 'Sepia', filter: 'sepia(0.8)', icon: '🟤' },
+    { label: 'Blur', filter: 'blur(4px)', icon: '🌫️' },
+    { label: 'Warm', filter: 'sepia(0.4) saturate(1.6) brightness(1.05)', icon: '🌅' },
+    { label: 'Cool', filter: 'hue-rotate(180deg) saturate(0.8)', icon: '🧊' },
+    { label: 'Vivid', filter: 'saturate(2) contrast(1.1)', icon: '🌈' },
+    { label: 'Dark', filter: 'brightness(0.6) contrast(1.3)', icon: '🌑' },
+];
+
+const OverlaysPanel = ({ clip, onApply, onClose }) => (
+    <div className="absolute inset-0 z-50 bg-black/75 flex items-center justify-center backdrop-blur-sm px-4">
+        <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 w-72 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-white">🎨 Video Effects</h3>
+                <button onClick={onClose} className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                {OVERLAY_EFFECTS.map(o => (
+                    <button key={o.label}
+                        onClick={() => { onApply(o.filter); }}
+                        className={`p-3 border rounded-xl text-xs flex items-center gap-2 transition-all ${
+                            clip?.cssFilter === o.filter
+                                ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200'
+                                : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-indigo-500/60 hover:bg-indigo-900/20'
+                        }`}>
+                        <span>{o.icon}</span>{o.label}
+                    </button>
+                ))}
+            </div>
+            <button onClick={onClose} className="w-full mt-3 py-2 rounded-xl text-xs text-white bg-indigo-600 hover:bg-indigo-500 transition-colors">Done</button>
+        </div>
+    </div>
+);
+
+// ─── Transitions Panel ───────────────────────────────────────────
+const TRANSITIONS = [
+    { label: 'None', value: 'none', icon: '🚫' },
+    { label: 'Fade In/Out', value: 'fade', icon: '🌫️' },
+    { label: 'Scale Up/Down', value: 'scale', icon: '🔍' },
+    { label: 'Slide In/Out', value: 'slide', icon: '⬅️' },
+];
+
+const TransitionsPanel = ({ clip, onApply, onClose }) => (
+    <div className="absolute inset-0 z-50 bg-black/75 flex items-center justify-center backdrop-blur-sm px-4">
+        <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 w-72 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-white">🔄 Quick Transitions</h3>
+                <button onClick={onClose} className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-[10px] text-gray-500 mb-3 uppercase tracking-widest font-bold">Apply to both IN and OUT</p>
+            <div className="grid grid-cols-2 gap-2">
+                {TRANSITIONS.map(t => (
+                    <button key={t.value}
+                        onClick={() => { onApply({ transitionIn: t.value, transitionOut: t.value }); }}
+                        className={`p-3 border rounded-xl text-xs flex flex-col items-center gap-1.5 transition-all ${
+                            clip?.transitionIn === t.value
+                                ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200'
+                                : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-indigo-500/60 hover:bg-indigo-900/20'
+                        }`}>
+                        <span className="text-xl">{t.icon}</span>
+                        {t.label}
+                    </button>
+                ))}
+            </div>
+            <button onClick={onClose} className="w-full mt-4 py-2 rounded-xl text-xs text-white bg-indigo-600 hover:bg-indigo-500 transition-colors shadow-lg">Done</button>
+        </div>
+    </div>
+);
+
+const VideoElement = ({ url, currentTime, isPlaying, muted, startPosition, videoOffset = 0 }) => {
+    const videoRef = useRef(null);
+    const clipTime = ((currentTime * 100 - startPosition) / 100) + videoOffset;
+
+    useEffect(() => {
+        if (!videoRef.current) return;
+        const video = videoRef.current;
+        
+        // Parallel Sync with drift compensation
+        if (clipTime >= 0) {
+            const drift = Math.abs(video.currentTime - clipTime);
+            if (drift > 0.5) {
+                video.currentTime = clipTime;
+            }
+            
+            if (isPlaying) {
+                if (video.paused) {
+                    video.play().catch(err => console.debug("Video play deferred:", err));
+                }
+            } else {
+                if (!video.paused) video.pause();
+            }
+        } else {
+            if (!video.paused) {
+                video.pause();
+                video.currentTime = 0;
+            }
+        }
+    }, [currentTime, isPlaying, clipTime]);
+
+    return (
+        <video 
+            ref={videoRef}
+            src={url} 
+            className="w-full h-full object-contain pointer-events-none" 
+            muted={muted}
+            playsInline
+        />
+    );
+};
+
+// ─── Main VideoPreview ─────────────────────────────────────────────
 const VideoPreview = ({
     currentVideo,
     videoRef,
@@ -9,13 +264,27 @@ const VideoPreview = ({
     currentTime,
     duration,
     handleUploadClick,
-    seek,
     clips = [],
-    onUpdateTextClip,
-    onUpdateClip
+    onUpdateClip,
+    activeOverlay,
+    onCloseOverlay,
+    activeClipId,
 }) => {
+    const playerWrapperRef = useRef(null);
+    const [playerSize, setPlayerSize] = useState({ width: 800, height: 450 });
     const [draggedTextId, setDraggedTextId] = useState(null);
-    const [dragStart, setDragStart] = useState(null);
+
+    useEffect(() => {
+        if (!playerWrapperRef.current) return;
+        const observer = new ResizeObserver((entries) => {
+            if (entries[0]) {
+                const { width, height } = entries[0].contentRect;
+                setPlayerSize({ width, height });
+            }
+        });
+        observer.observe(playerWrapperRef.current);
+        return () => observer.disconnect();
+    }, []);
 
     const formatTime = (seconds) => {
         const mins = Math.floor(seconds / 60);
@@ -23,146 +292,190 @@ const VideoPreview = ({
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    // Filter text clips that should be visible at current time
-    const visibleTextClips = clips.filter(clip => 
-        clip.type === 'text' && 
-        (clip.startPosition / 100) <= currentTime && 
-        ((clip.startPosition / 100) + clip.duration) >= currentTime
-    );
-
-    const handleTextMouseDown = (e, clip) => {
-        // Prevent event from bubbling up to video click handler (which toggles play/pause)
-        e.stopPropagation();
-        
-        // Use the relative position within the container to avoid immediate snapping
-        setDraggedTextId(clip.id);
-        setDragStart({
-            x: e.clientX,
-            y: e.clientY,
-            initialClipX: clip.x || 50,
-            initialClipY: clip.y || 50
-        });
+    const isClipActive = (clip) => {
+        const start = clip.startPosition / 100;
+        return start <= currentTime && (start + clip.duration) >= currentTime;
     };
 
-    const handleTextMouseMove = (e) => {
-        if (!draggedTextId || !dragStart || !onUpdateTextClip) return;
+    const activeClips = clips.filter(isClipActive);
+    const liveActiveClip = clips.find(c => c.id === activeClipId) || null;
 
-        // Container dimensions
-        const container = e.currentTarget;
-        const rect = container.getBoundingClientRect();
+    const getClipStyle = (clip) => {
+        const start = clip.startPosition / 100;
+        const end = start + clip.duration;
+        const transDur = 0.5;
+        const clipTime = currentTime - start;
 
-        // Calculate delta in pixels
-        const deltaX = e.clientX - dragStart.x;
-        const deltaY = e.clientY - dragStart.y;
+        const baseOpacity = (clip.opacity !== undefined ? clip.opacity : 100) / 100;
+        let transOpacity = 1;
+        if (currentTime >= start && currentTime < start + transDur && clip.transitionIn && clip.transitionIn !== 'none') {
+            transOpacity = (currentTime - start) / transDur;
+        } else if (currentTime > end - transDur && currentTime <= end && clip.transitionOut && clip.transitionOut !== 'none') {
+            transOpacity = (end - currentTime) / transDur;
+        }
 
-        // Convert delta to percentages
-        const deltaXPercent = (deltaX / rect.width) * 100;
-        const deltaYPercent = (deltaY / rect.height) * 100;
+        let popTransform = '';
+        if (clip.hasPopIn && clipTime < 0.5) {
+            const progress = clipTime / 0.5;
+            popTransform = ` scale(${0.5 + 0.5 * progress})`;
+        }
 
-        // Calculate new position
-        let newX = dragStart.initialClipX + deltaXPercent;
-        let newY = dragStart.initialClipY + deltaYPercent;
-
-        // Constrain to container (0-100%)
-        newX = Math.max(0, Math.min(100, newX));
-        newY = Math.max(0, Math.min(100, newY));
-
-        onUpdateTextClip(draggedTextId, { x: newX, y: newY });
-    };
-
-    const handleTextMouseUp = () => {
-        setDraggedTextId(null);
-        setDragStart(null);
+        return {
+            filter: clip.cssFilter || 'none',
+            opacity: baseOpacity * transOpacity,
+            mixBlendMode: clip.blendMode || 'normal',
+            border: clip.hasBorder ? '4px solid white' : 'none',
+            boxShadow: clip.hasBorder ? '0 10px 30px rgba(0,0,0,0.5)' : 'none',
+            transform: popTransform,
+            transition: 'filter 0.2s ease',
+            pointerEvents: 'none'
+        };
     };
 
     const handleToggleMute = (e) => {
         e.stopPropagation();
-        if (currentVideo && currentVideo.type === 'video' && onUpdateClip) {
-            onUpdateClip(currentVideo.id, { muted: !currentVideo.muted });
+        if (liveActiveClip && liveActiveClip.type === 'video' && onUpdateClip) {
+            onUpdateClip(liveActiveClip.id, { muted: !liveActiveClip.muted });
         }
     };
 
     return (
-        <div className="flex-1 bg-black flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="flex-1 bg-black/40 flex items-center justify-center p-4 relative overflow-hidden">
             <div
-                className="relative aspect-video bg-gray-900 shadow-2xl overflow-hidden group max-h-full max-w-full"
-                onMouseMove={handleTextMouseMove}
-                onMouseUp={handleTextMouseUp}
-                onMouseLeave={handleTextMouseUp}
+                ref={playerWrapperRef}
+                className="relative bg-black shadow-2xl overflow-hidden group border border-white/10"
+                style={{ 
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: '#000'
+                }}
             >
-                {currentVideo ? (
-                    currentVideo.type === 'image' ? (
-                        <img
-                            src={currentVideo.url}
-                            className="w-full h-full object-contain"
-                            alt="Preview"
-                        />
-                    ) : (
-                        <video
-                            ref={videoRef}
-                            src={currentVideo.url}
-                            className="w-full h-full object-contain"
-                            onClick={handlePlayPause}
-                            muted={currentVideo.muted || false}
-                        />
-                    )
-                ) : (
-                    <div 
-                        className="w-full h-full flex flex-col items-center justify-center border border-gray-800 rounded-2xl cursor-pointer hover:bg-gray-800/20 transition-colors"
-                        onClick={handleUploadClick}
-                    >
-                        <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-                        <div className="p-5 bg-gray-800 rounded-full mb-4 hover:scale-110 transition-transform duration-300 shadow-xl relative z-10">
-                            <Upload className="w-8 h-8 text-gray-400 hover:text-white" />
-                        </div>
-                        <p className="text-sm font-medium text-gray-500 relative z-10">Import a video to start editing</p>
-                    </div>
+                <div className="absolute inset-0 bg-black/50" />
+
+                {/* Unified Media Layer (Track 0 to N) - Excluding Audio */}
+                {activeClips
+                    .filter(c => c.type !== 'audio')
+                    .sort((a,b) => (a.trackIndex||0) - (b.trackIndex||0))
+                    .map(clip => {
+                    const style = getClipStyle(clip);
+                    const isBase = (clip.trackIndex || 0) === 0;
+                    
+                    const pX = (clip.x ?? 0) / 100 * playerSize.width;
+                    const pY = (clip.y ?? 0) / 100 * playerSize.height;
+                    const pW = (clip.width ?? 100) / 100 * playerSize.width;
+                    const pH = (clip.height ?? 'auto') === 'auto' ? 'auto' : (typeof clip.height === 'string' ? clip.height : (clip.height / 100 * playerSize.height));
+
+                    return (
+                        <Rnd
+                            key={clip.id}
+                            className={`z-10 ${activeClipId === clip.id ? 'outline outline-2 outline-indigo-500 shadow-2xl' : 'hover:outline hover:outline-1 hover:outline-white/20'} flex items-center justify-center group`}
+                            size={{ width: pW, height: pH }}
+                            position={{ x: pX, y: pY }}
+                            onDragStop={(e, d) => {
+                                onUpdateClip(clip.id, {
+                                    x: (d.x / playerSize.width) * 100,
+                                    y: (d.y / playerSize.height) * 100
+                                });
+                            }}
+                            onResizeStop={(e, dir, ref, delta, pos) => {
+                                onUpdateClip(clip.id, {
+                                    width: (ref.offsetWidth / playerSize.width) * 100,
+                                    height: (ref.offsetHeight / playerSize.height) * 100,
+                                    x: (pos.x / playerSize.width) * 100,
+                                    y: (pos.y / playerSize.height) * 100
+                                });
+                            }}
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (window.confirm(`Delete this ${clip.type}?`)) {
+                                    onUpdateClip(clip.id, { isDeleted: true });
+                                }
+                            }}
+                            bounds="parent"
+                            onClick={(e) => { e.stopPropagation(); setActiveClipId(clip.id); }}
+                            style={{ zIndex: 10 + (clip.trackIndex || 0) }}
+                        >
+                            <div className="w-full h-full relative overflow-hidden" style={style}>
+                                {clip.type === 'text' ? (
+                                    <div 
+                                        className="w-full h-full flex items-center justify-center p-2 text-center break-words select-none"
+                                        style={{ 
+                                            fontSize: `${clip.fontSize || 48}px`,
+                                            color: clip.color || '#fff',
+                                            fontWeight: clip.fontWeight || 'normal',
+                                            fontStyle: clip.fontStyle || 'normal',
+                                            textShadow: '0 2px 10px rgba(0,0,0,0.5)',
+                                            lineHeight: 1.2
+                                        }}
+                                    >
+                                        {clip.text}
+                                    </div>
+                                ) : clip.type === 'image' ? (
+                                    <img src={clip.url} className="w-full h-full pointer-events-none object-contain" alt="Clip" />
+                                ) : (
+                                    <VideoElement 
+                                        url={clip.url} 
+                                        currentTime={currentTime} 
+                                        isPlaying={isPlaying} 
+                                        muted={clip.muted}
+                                        startPosition={clip.startPosition}
+                                        videoOffset={clip.videoOffset || 0}
+                                    />
+                                )}
+                            </div>
+                        </Rnd>
+                    );
+                })}
+
+                {activeOverlay === 'crop' && (
+                    <CropOverlay
+                        clip={liveActiveClip}
+                        onApply={(data) => liveActiveClip && onUpdateClip(liveActiveClip.id, { crop: data })}
+                        onClose={onCloseOverlay}
+                    />
+                )}
+                {activeOverlay === 'transform' && (
+                    <TransformOverlay
+                        clip={liveActiveClip}
+                        onApply={(data) => liveActiveClip && onUpdateClip(liveActiveClip.id, { transform: data })}
+                        onClose={onCloseOverlay}
+                    />
+                )}
+                {activeOverlay === 'overlays' && (
+                    <OverlaysPanel
+                        clip={liveActiveClip}
+                        onApply={(filter) => liveActiveClip && onUpdateClip(liveActiveClip.id, { cssFilter: filter })}
+                        onClose={onCloseOverlay}
+                    />
+                )}
+                {activeOverlay === 'transitions' && (
+                    <TransitionsPanel
+                        clip={liveActiveClip}
+                        onApply={(data) => liveActiveClip && onUpdateClip(liveActiveClip.id, data)}
+                        onClose={onCloseOverlay}
+                    />
                 )}
 
-                {/* Render Text Overlays */}
-                {visibleTextClips.map(clip => (
-                    <div
-                        key={clip.id}
-                        className={`absolute cursor-move px-4 py-2 rounded-lg border-2 ${draggedTextId === clip.id ? 'border-indigo-500 bg-black/40' : 'border-transparent hover:border-white/50 bg-transparent'} transition-colors whitespace-nowrap z-50`}
-                        style={{
-                            left: `${clip.x || 50}%`,
-                            top: `${clip.y || 50}%`,
-                            transform: 'translate(-50%, -50%)',
-                            color: clip.color || '#ffffff',
-                            fontSize: `${clip.fontSize || 48}px`,
-                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-                            userSelect: 'none'
-                        }}
-                        onMouseDown={(e) => handleTextMouseDown(e, clip)}
-                    >
-                        {clip.text}
-                    </div>
-                ))}
-
-                {/* Controls Overlay */}
                 {clips.length > 0 && (
-                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                    <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/85 to-transparent opacity-0 group-hover:opacity-100 transition-opacity z-40">
                         <div className="flex items-center justify-between text-white">
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-3">
                                 <button onClick={handlePlayPause} className="p-2 hover:bg-white/20 rounded-full transition-colors">
-                                    {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+                                    {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                                 </button>
-                                <span className="font-mono text-sm">
+                                <span className="font-mono text-xs">
                                     {formatTime(currentTime)} / {formatTime(duration)}
                                 </span>
                             </div>
-                            <div className="flex items-center gap-4">
-                                {currentVideo && currentVideo.type === 'video' && (
-                                    <button 
-                                        onClick={handleToggleMute}
-                                        className="p-2 hover:bg-white/20 rounded-full transition-colors"
-                                        title={currentVideo.muted ? "Unmute" : "Mute"}
-                                    >
-                                        {currentVideo.muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                            <div className="flex items-center gap-2">
+                                {liveActiveClip && liveActiveClip.type === 'video' && (
+                                    <button onClick={handleToggleMute} className="p-2 hover:bg-white/20 rounded-full transition-colors">
+                                        {liveActiveClip.muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                                     </button>
                                 )}
                                 <button className="p-2 hover:bg-white/20 rounded-full transition-colors">
-                                    <Maximize className="w-5 h-5" />
+                                    <Maximize className="w-4 h-4" />
                                 </button>
                             </div>
                         </div>

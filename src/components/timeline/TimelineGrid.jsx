@@ -9,15 +9,17 @@ const TimelineGrid = ({
     tickInterval,
     tracks,
     clips,
+    activeClipId,
     currentVideo,
     currentTime,
     onClipClick,
     onClipMouseDown,
     onClipResizeMouseDown,
-    getTrackY
+    getTrackY,
+    height
 }) => {
     return (
-        <div style={{ width: `${timelineWidth * zoom}px` }} className="min-h-full relative">
+        <div style={{ width: `${timelineWidth * zoom}px`, height: `${height}px` }} className="relative bg-[#111] overflow-hidden">
             <TimelineRuler timelineWidth={timelineWidth} tickInterval={tickInterval} zoom={zoom} />
 
             <div className="relative">
@@ -27,7 +29,7 @@ const TimelineGrid = ({
             </div>
 
             {clips.map((clip) => {
-                const isActive = currentVideo?.id === clip.id;
+                const isActive = activeClipId === clip.id;
                 const trackY = getTrackY(clip.trackIndex);
                 return (
                     <Clip 

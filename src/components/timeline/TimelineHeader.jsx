@@ -4,7 +4,7 @@ import { Plus, Music, Scissors, Trash2, ZoomOut, ZoomIn, RotateCcw } from 'lucid
 const TimelineHeader = ({
     zoom,
     setZoom,
-    currentVideo,
+    activeClip,
     onSplit,
     onDelete,
     handleUploadClick,
@@ -31,8 +31,8 @@ const TimelineHeader = ({
                 </button>
                 <button 
                     onClick={onSplit}
-                    disabled={!currentVideo}
-                    className={`p-1.5 rounded-lg transition-colors flex items-center gap-2 ${currentVideo ? 'text-gray-300 hover:text-white hover:bg-gray-800' : 'text-gray-600 cursor-not-allowed'}`}
+                    disabled={!activeClip}
+                    className={`p-1.5 rounded-lg transition-colors flex items-center gap-2 ${activeClip ? 'text-gray-300 hover:text-white hover:bg-gray-800' : 'text-gray-600 cursor-not-allowed'}`}
                     title="Split Clip at Playhead"
                 >
                     <Scissors className="w-4 h-4" />
@@ -40,8 +40,8 @@ const TimelineHeader = ({
                 </button>
                 <button 
                     onClick={onDelete}
-                    disabled={!currentVideo}
-                    className={`p-1.5 rounded-lg transition-colors flex items-center gap-2 ${currentVideo ? 'text-gray-300 hover:text-red-400 hover:bg-gray-800' : 'text-gray-600 cursor-not-allowed'}`}
+                    disabled={!activeClip}
+                    className={`p-1.5 rounded-lg transition-colors flex items-center gap-2 ${activeClip ? 'text-gray-300 hover:text-red-400 hover:bg-gray-800' : 'text-gray-600 cursor-not-allowed'}`}
                     title="Delete Selected Clip"
                 >
                     <Trash2 className="w-4 h-4" />

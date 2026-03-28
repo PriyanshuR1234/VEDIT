@@ -1,5 +1,5 @@
 import React, { useRef, forwardRef, useImperativeHandle, useState, useCallback, useEffect } from 'react';
-import { Upload, Play, Pause, SkipBack, SkipForward, Loader2 } from 'lucide-react';
+import { Upload, Play, Pause, SkipBack, SkipForward, Loader2, Type, Download } from 'lucide-react';
 import Timeline from './Timeline';
 import VideoPreview from './VideoPreview';
 import TextToolbar from './TextToolbar';
@@ -23,21 +23,23 @@ const VideoEditor = forwardRef((props, ref) => {
     } = useTimeline();
 
     const [timelineHeight, setTimelineHeight] = useState(320);
-    const isDraggingTimeline = useRef(false);
+    const [isDraggingTimeline, setIsDraggingTimeline] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+    const [isImportingOverlay, setIsImportingOverlay] = useState(false);
 
     const handleMouseMoveResize = useCallback((e) => {
-        if (isDraggingTimeline.current) {
+        if (isDraggingTimeline) {
             const newHeight = window.innerHeight - e.clientY;
             setTimelineHeight(Math.max(150, Math.min(newHeight, window.innerHeight * 0.8)));
         }
-    }, []);
+    }, [isDraggingTimeline]);
 
     const handleMouseUpResize = useCallback(() => {
-        if (isDraggingTimeline.current) {
-            isDraggingTimeline.current = false;
+        if (isDraggingTimeline) {
+            setIsDraggingTimeline(false);
             document.body.style.cursor = 'default';
         }
-    }, []);
+    }, [isDraggingTimeline]);
 
     useEffect(() => {
         window.addEventListener('mousemove', handleMouseMoveResize);
@@ -67,6 +69,29 @@ const VideoEditor = forwardRef((props, ref) => {
 
     const { handleClipMouseDown, handleResizeMouseDown } = useDragDrop(clips, setClips, zoom, timelineRef);
 
+    const handleUploadToAI = async (file, clipId) => {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await fetch('http://localhost:8000/api/upload-media', {
+                method: 'POST',
+                body: formData
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.geminiFileId) {
+                    setClips(prev => prev.map(c => c.id === clipId ? { 
+                        ...c, 
+                        geminiFileId: data.geminiFileId,
+                        name: data.filename || c.name 
+                    } : c));
+                }
+            }
+        } catch (error) {
+            console.error('Failed AI background upload:', error);
+        }
+    };
+
     const handleFileSelect = async (e) => {
         const files = Array.from(e.target.files);
         const videoFiles = files.filter(file => file.type.startsWith('video/'));
@@ -75,7 +100,17 @@ const VideoEditor = forwardRef((props, ref) => {
         if (videoFiles.length === 0 && imageFiles.length === 0) return;
 
         let lastEndPosition = clips.reduce((max, clip) => Math.max(max, clip.startPosition + (clip.duration * 100)), 0);
+        const startPos = isImportingOverlay ? currentTime * 100 : lastEndPosition;
+        let currentMaxTrack = 0;
         const newClips = [];
+        if (isImportingOverlay) {
+            // Simple logic: find highest track and go +1, or find first empty slot
+            const tracksAtTime = clips.filter(c => 
+                (c.startPosition < startPos + 500) && 
+                (c.startPosition + c.duration * 100 > startPos)
+            ).map(c => c.trackIndex);
+            currentMaxTrack = tracksAtTime.length > 0 ? Math.max(...tracksAtTime) + 1 : 1;
+        }
 
         for (const file of [...videoFiles, ...imageFiles]) {
             const url = URL.createObjectURL(file);
@@ -94,27 +129,37 @@ const VideoEditor = forwardRef((props, ref) => {
             });
             const metadata = await loadMetadata;
             const isVideo = file.type.startsWith('video/');
+            const primaryId = `clip_${Math.random().toString(36).substr(2, 9)}`;
             
+            const trackIndex = isImportingOverlay ? currentMaxTrack : 0;
+            const initialX = isImportingOverlay ? 35 : 0;
+            const initialY = isImportingOverlay ? 35 : 0;
+            const initialWidth = isImportingOverlay ? 30 : 100;
+            const initialHeight = isImportingOverlay ? 30 : 100;
+
             newClips.push({
-                id: Date.now() + Math.random(),
+                id: primaryId,
                 name: file.name,
                 url: metadata.url,
                 duration: metadata.duration,
-                startPosition: lastEndPosition,
-                trackIndex: 0,
+                startPosition: startPos,
+                trackIndex: trackIndex,
                 videoOffset: 0,
                 type: isVideo ? 'video' : 'image',
-                muted: isVideo ? true : false,
-                isHidden: false
+                muted: isVideo, // Mute the video clip if we add a separate audio track below
+                isHidden: false,
+                x: initialX, y: initialY, width: initialWidth, height: initialHeight,
+                hasPopIn: isImportingOverlay,
+                hasBorder: isImportingOverlay
             });
 
             if (isVideo) {
                 newClips.push({
-                    id: Date.now() + Math.random(),
+                    id: `audio_${Math.random().toString(36).substr(2, 9)}`,
                     name: `${file.name.substring(0, 15)} Audio`,
                     url: metadata.url,
                     duration: metadata.duration,
-                    startPosition: lastEndPosition,
+                    startPosition: startPos,
                     trackIndex: -1,
                     type: 'audio',
                     volume: 1,
@@ -122,10 +167,16 @@ const VideoEditor = forwardRef((props, ref) => {
                 });
             }
 
-            lastEndPosition += metadata.duration * 100;
+            handleUploadToAI(file, primaryId);
+            if (!isImportingOverlay) {
+                lastEndPosition += metadata.duration * 100;
+            } else {
+                currentMaxTrack++; // Stack next overlay higher if multiple
+            }
         }
 
         addClips(newClips);
+        if (newClips.length > 0) setActiveClipId(newClips[0].id);
         e.target.value = '';
     };
 
@@ -139,72 +190,12 @@ const VideoEditor = forwardRef((props, ref) => {
             const loadMetadata = new Promise((resolve) => {
                 const audio = document.createElement('audio');
                 audio.src = url;
-                audio.onloadedmetadata = () => {
-                    resolve({ duration: audio.duration, url: url });
-                };
-            });
-            const metadata = await loadMetadata;
-            newClips.push({
-                id: Date.now() + Math.random(),
-                name: file.name,
-                url: metadata.url,
-                duration: metadata.duration,
-                startPosition: Math.max(0, currentTime * 100),
-                trackIndex: -1, // Audio track
-                type: 'audio',
-                volume: 1,
-                isHidden: false,
-            });
-        }
-        addClips(newClips);
-        e.target.value = '';
-    };
-
-    const [selectedTextClip, setSelectedTextClip] = useState(null);
-    const [isExporting, setIsExporting] = useState(false);
-
-    const handleUploadClick = () => {
-        fileInputRef.current?.click();
-    };
-
-    const handleAudioUploadClick = () => {
-        audioInputRef.current?.click();
-    };
-
-    const [isDraggingOver, setIsDraggingOver] = useState(false);
-
-    const handleDragOver = (e) => {
-        e.preventDefault();
-        setIsDraggingOver(true);
-    };
-
-    const handleDragLeave = (e) => {
-        e.preventDefault();
-        setIsDraggingOver(false);
-    };
-
-    const handleDrop = async (e) => {
-        e.preventDefault();
-        setIsDraggingOver(false);
-        const files = Array.from(e.dataTransfer.files);
-        if (files.length === 0) return;
-
-        const videoFiles = files.filter(f => f.type.startsWith('video/') || f.type.startsWith('image/'));
-        const audioFiles = files.filter(f => f.type.startsWith('audio/'));
-
-        const newClips = [];
-
-        for (const file of audioFiles) {
-            const url = URL.createObjectURL(file);
-            const loadMetadata = new Promise((resolve) => {
-                const audio = document.createElement('audio');
-                audio.src = url;
                 audio.onloadedmetadata = () => resolve({ duration: audio.duration, url: url });
-                audio.onerror = () => resolve({ duration: 5, url: url });
             });
             const metadata = await loadMetadata;
+            const primaryId = `clip_${Math.random().toString(36).substr(2, 9)}`;
             newClips.push({
-                id: Date.now() + Math.random(),
+                id: primaryId,
                 name: file.name,
                 url: metadata.url,
                 duration: metadata.duration,
@@ -214,405 +205,337 @@ const VideoEditor = forwardRef((props, ref) => {
                 volume: 1,
                 isHidden: false,
             });
+            handleUploadToAI(file, primaryId);
         }
+        addClips(newClips);
+        if (newClips.length > 0) setActiveClipId(newClips[0].id);
+        e.target.value = '';
+    };
 
-        let lastEndPosition = clips.length > 0 
-            ? Math.max(...clips.map(c => c.startPosition + (c.duration * 100))) 
-            : 0;
+    const [selectedTextClip, setSelectedTextClip] = useState(null);
+    const [activeTool, setActiveToolState] = useState(null);
+    const [activeOverlay, setActiveOverlay] = useState(null); // 'crop' | 'transform' | 'overlays' | null
+    const [textPromptOpen, setTextPromptOpen] = useState(false);
+    const [showTextToolbar, setShowTextToolbar] = useState(true);
+    const [activeClipId, setActiveClipId] = useState(null);
 
-        for (const file of videoFiles) {
-            const url = URL.createObjectURL(file);
-            const loadMetadata = new Promise((resolve) => {
-                if (file.type.startsWith('video/')) {
-                    const video = document.createElement('video');
-                    video.src = url;
-                    video.onloadedmetadata = () => resolve({ duration: video.duration, url: url });
-                    video.onerror = () => resolve({ duration: 5, url: url });
-                } else {
-                    const img = new Image();
-                    img.src = url;
-                    img.onload = () => resolve({ duration: 5, url: url }); // Default 5s for images
-                    img.onerror = () => resolve({ duration: 5, url: url });
+    // Global Paste Listener for Media
+    useEffect(() => {
+        const handlePaste = async (e) => {
+            const items = e.clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1 || items[i].type.indexOf('video') !== -1) {
+                    const file = items[i].getAsFile();
+                    if (file) {
+                        const url = URL.createObjectURL(file);
+                        const newClip = {
+                            id: `clip_${Math.random().toString(36).substr(2, 9)}`,
+                            url: url,
+                            type: file.type.startsWith('image') ? 'image' : 'video',
+                            duration: file.type.startsWith('image') ? 5 : 0, 
+                            startPosition: currentTime * 100,
+                            name: file.name,
+                            x: 25, y: 25, width: 50, height: 50,
+                            hasPopIn: true,
+                            hasBorder: true,
+                            muted: false,
+                            trackIndex: 0
+                        };
+                        addClips([newClip]);
+                        setActiveClipId(newClip.id);
+                        handleUploadToAI(file, newClip.id);
+                    }
                 }
+            }
+        };
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [currentTime, addClips]);
+
+    const handleUploadClick = () => {
+        setIsImportingOverlay(false);
+        fileInputRef.current?.click();
+    };
+    const handleImportOverlayClick = () => {
+        setIsImportingOverlay(true);
+        fileInputRef.current?.click();
+    };
+    const handleAudioUploadClick = () => audioInputRef.current?.click();
+
+    const [isDraggingOver, setIsDraggingOver] = useState(false);
+    const handleDragOver = (e) => { e.preventDefault(); setIsDraggingOver(true); };
+    const handleDragLeave = (e) => { e.preventDefault(); setIsDraggingOver(false); };
+
+    const handleDrop = async (e) => {
+        e.preventDefault();
+        setIsDraggingOver(false);
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length === 0) return;
+
+        const mediaFiles = files.filter(f => f.type.startsWith('video/') || f.type.startsWith('image/'));
+        const audioFiles = files.filter(f => f.type.startsWith('audio/'));
+
+        const newClips = [];
+        for (const file of audioFiles) {
+            const url = URL.createObjectURL(file);
+            const metadata = await new Promise(r => {
+                const a = document.createElement('audio');
+                a.src = url; a.onloadedmetadata = () => r({ duration: a.duration });
             });
-            const metadata = await loadMetadata;
-            const isVideo = file.type.startsWith('video/');
             newClips.push({
-                id: Date.now() + Math.random(),
-                name: file.name,
-                url: metadata.url,
-                duration: metadata.duration,
-                startPosition: lastEndPosition,
-                trackIndex: 0,
-                videoOffset: 0,
-                type: isVideo ? 'video' : 'image',
-                muted: isVideo ? true : false,
-                isHidden: false
+                id: `audio_${Math.random().toString(36).substr(2, 9)}`,
+                name: file.name, url, duration: metadata.duration,
+                startPosition: currentTime * 100, trackIndex: -1, type: 'audio', volume: 1
             });
+        }
+        for (const file of mediaFiles) {
+            const url = URL.createObjectURL(file);
+            const isVideo = file.type.startsWith('video/');
+            const primaryId = `clip_${Math.random().toString(36).substr(2, 9)}`;
+            const clip = {
+                id: primaryId, url, type: isVideo ? 'video' : 'image',
+                duration: 5, startPosition: currentTime * 100, name: file.name,
+                x: 10, y: 10, width: 80, height: 80, hasPopIn: true, muted: isVideo,
+                trackIndex: 0 // Default to first track
+            };
+            newClips.push(clip);
 
             if (isVideo) {
                 newClips.push({
-                    id: Date.now() + Math.random(),
+                    id: `audio_${Math.random().toString(36).substr(2, 9)}`,
                     name: `${file.name.substring(0, 15)} Audio`,
-                    url: metadata.url,
-                    duration: metadata.duration,
-                    startPosition: lastEndPosition,
-                    trackIndex: -1,
-                    type: 'audio',
-                    volume: 1,
-                    isHidden: false
+                    url, duration: 5,
+                    startPosition: currentTime * 100, trackIndex: -1, type: 'audio', volume: 1
                 });
             }
-
-            lastEndPosition += metadata.duration * 100;
+            handleUploadToAI(file, primaryId);
         }
-
         addClips(newClips);
+        if (newClips.length > 0) setActiveClipId(newClips[0].id);
     };
 
     const handleAddText = (text) => {
+        const id = `text_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Smart tracking for text too
+        const startPos = Math.max(0, currentTime * 100);
+        const tracksAtTime = clips.filter(c => 
+            (c.startPosition < startPos + 500) && 
+            (c.startPosition + c.duration * 100 > startPos)
+        ).map(c => c.trackIndex);
+        const nextTrack = tracksAtTime.length > 0 ? Math.max(...tracksAtTime) + 1 : 1;
+
         const newClip = {
-            id: Date.now() + Math.random(),
-            name: `Text: ${text.substring(0, 10)}...`,
-            text: text,
-            duration: 5,
-            startPosition: Math.max(0, currentTime * 100),
-            trackIndex: -2,
+            id,
+            name: 'Text',
             type: 'text',
-            fontSize: 48,
-            color: '#ffffff',
-            x: 50,
-            y: 50,
-            isHidden: false
+            text: text || 'New Text',
+            startPosition: startPos,
+            duration: 5,
+            trackIndex: -2, // Text Track
+            opacity: 100,
+            cssFilter: '',
+            fontSize: 48, color: '#ffffff',
+            fontFamily: 'Inter', fontWeight: 'bold'
         };
         addClips([newClip]);
+        setActiveClipId(id);
         setSelectedTextClip(newClip);
+        setTextPromptOpen(false);
     };
 
-    const handleUpdateTextClip = (id, updates) => {
-        const updatedClips = clips.map(c => 
-            c.id === id ? { ...c, ...updates } : c
-        );
-        updateClips(updatedClips);
-        
-        if (selectedTextClip?.id === id) {
-            setSelectedTextClip(prev => ({ ...prev, ...updates }));
-        }
+    const splitAtPlayhead = () => {
+        const activeClip = clips.find(c => c.id === activeClipId);
+        if (activeClip) splitClip(activeClip.id, currentTime);
+        else alert('Select a clip first to split it.');
     };
+
 
     const handleUpdateClip = (id, updates) => {
-        const updatedClips = clips.map(c => 
-            c.id === id ? { ...c, ...updates } : c
-        );
-        updateClips(updatedClips);
+        if (updates.isDeleted) {
+            deleteClip(id);
+            if (activeClipId === id) setActiveClipId(null);
+            if (selectedTextClip?.id === id) setSelectedTextClip(null);
+            return;
+        }
+        setClips(prev => {
+            const next = prev.map(c => c.id === id ? { ...c, ...updates } : c);
+            const updated = next.find(c => c.id === id);
+            if (updated?.type === 'text' && selectedTextClip?.id === id) {
+                setSelectedTextClip(updated);
+            }
+            return next;
+        });
+        setActiveClipId(id);
+    };
+
+    const handleUpdateClips = (updates) => {
+        setClips(prev => prev.map(c => ({ ...c, ...updates })));
     };
 
     const handleExport = async () => {
-        if (clips.length === 0) return;
+        if (clips.length === 0) { alert("No clips on timeline to export!"); return; }
         setIsExporting(true);
-        seek(0);
         
-        // Wait a bit for seek to complete and first frame to load
-        await new Promise(r => setTimeout(r, 500));
-        
-        const canvas = document.createElement('canvas');
-        // Standard export resolution
-        canvas.width = 1920;
-        canvas.height = 1080;
-        const ctx = canvas.getContext('2d');
-        
-        const stream = canvas.captureStream(30); // 30 FPS
-        
-        // Audio handling
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const dest = audioContext.createMediaStreamDestination();
-        
-        // We need to keep references to created elements to clean them up and manage playback
-        const mediaElements = [];
-        
-        // The most complicated part of a frontend export is managing time and drawing frames
-        // accurately. This simplified version will draw the master <video> element
-        // from the UI directly to the canvas in real-time.
-        const masterVideo = videoRef.current;
-        
-        if (masterVideo) {
-            // Check if it has an audio track and is not muted
-            if (!masterVideo.muted && masterVideo.mozHasAudio || Boolean(masterVideo.webkitAudioDecodedByteCount) || Boolean(masterVideo.audioTracks && masterVideo.audioTracks.length)) {
-                 try {
-                     const source = audioContext.createMediaElementSource(masterVideo);
-                     source.connect(dest);
-                 } catch (e) {
-                     console.warn("Could not capture audio from video element", e);
-                 }
+        // Match the canvas orientation (laptop = landscape)
+        const isLandscape = window.innerWidth > window.innerHeight;
+        const exportWidth = isLandscape ? 1920 : 1080;
+        const exportHeight = isLandscape ? 1080 : 1920;
+
+        try {
+            const response = await fetch('http://localhost:8000/api/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clips: clips.map(c => ({
+                        id: c.id, type: c.type, name: c.name,
+                        startPosition: c.startPosition, duration: c.duration,
+                        x: c.x || 0, y: c.y || 0, width: c.width || 100, height: c.height || 100,
+                        muted: c.muted, hasPopIn: c.hasPopIn, hasBorder: c.hasBorder,
+                        cssFilter: c.cssFilter, opacity: c.opacity || 100, text: c.text,
+                        videoOffset: c.videoOffset || 0, volume: c.volume || 100,
+                        trackIndex: c.trackIndex || 0
+                    })),
+                    settings: { width: exportWidth, height: exportHeight, fps: 30 }
+                })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                const filename = data.url.split('/').pop() || 'vedit_export.mp4';
+                const downloadUrl = `http://localhost:8000/api/download/${filename}`;
+                
+                // Open natively pointing to the explicit download API
+                window.open(downloadUrl, '_blank');
+                
+            } else {
+                const err = await response.json(); alert(`Export failed: ${err.detail}`);
             }
-        }
-        
-        // Note: For a robust export, we'd need to create silent AudioContext sources for audio clips,
-        // synchronize their playback with the video recording, and pipe them into `dest`.
-        // Given constraints, this basic implementation focuses on visual export + main video audio.
-        
-        // Add captured audio tracks to the video stream
-        dest.stream.getAudioTracks().forEach(track => stream.addTrack(track));
-
-        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-        const recordedChunks = [];
-
-        mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) recordedChunks.push(e.data);
-        };
-
-        mediaRecorder.onstop = () => {
-            const blob = new Blob(recordedChunks, { type: 'video/webm' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            document.body.appendChild(a);
-            a.style = 'display: none';
-            a.href = url;
-            a.download = 'vedit-export.webm';
-            a.click();
-            URL.revokeObjectURL(url);
-            setIsExporting(false);
-            audioContext.close();
-        };
-
-        // Render loop
-        const drawFrame = () => {
-             // Clear background (black)
-             ctx.fillStyle = '#000000';
-             ctx.fillRect(0, 0, canvas.width, canvas.height);
-             
-             if (masterVideo && !masterVideo.paused && !masterVideo.ended) {
-                 // Calculate aspect ratio preserving draw
-                 const vRatio = canvas.width / masterVideo.videoWidth;
-                 const hRatio = canvas.height / masterVideo.videoHeight;
-                 const ratio  = Math.min(vRatio, hRatio);
-                 const centerShift_x = (canvas.width - masterVideo.videoWidth*ratio) / 2;
-                 const centerShift_y = (canvas.height - masterVideo.videoHeight*ratio) / 2;  
-                 
-                 ctx.drawImage(masterVideo, 0,0, masterVideo.videoWidth, masterVideo.videoHeight,
-                                    centerShift_x,centerShift_y,masterVideo.videoWidth*ratio, masterVideo.videoHeight*ratio);
-             }
-             
-             // Draw text overlays if they exist for current time
-             const visibleTexts = clips.filter(clip => 
-                clip.type === 'text' && 
-                (clip.startPosition / 100) <= currentTime && 
-                ((clip.startPosition / 100) + clip.duration) >= currentTime
-             );
-             
-             visibleTexts.forEach(clip => {
-                 ctx.font = `${clip.fontSize || 48}px sans-serif`;
-                 ctx.fillStyle = clip.color || '#ffffff';
-                 ctx.textAlign = 'center';
-                 ctx.textBaseline = 'middle';
-                 
-                 // Apply shadow
-                 ctx.shadowColor = 'rgba(0,0,0,0.8)';
-                 ctx.shadowBlur = 4;
-                 ctx.shadowOffsetX = 2;
-                 ctx.shadowOffsetY = 2;
-                 
-                 const x = (clip.x || 50) / 100 * canvas.width;
-                 const y = (clip.y || 50) / 100 * canvas.height;
-                 
-                 ctx.fillText(clip.text, x, y);
-                 
-                 // Reset shadow for next draw
-                 ctx.shadowColor = 'transparent';
-             });
-
-             if (isExportingRef.current) {
-                 requestAnimationFrame(drawFrame);
-             }
-        };
-
-        // Start recording and playback
-        mediaRecorder.start();
-        setIsPlaying(true);
-        const isExportingRef = { current: true };
-        drawFrame();
-        
-        // Stop logic will be handled by a useEffect watching `isPlaying` to stop when it reaches the end
-        // For simplicity in this replacement chunk, we attach it to the window or set a timeout based on duration
-        setTimeout(() => {
-            isExportingRef.current = false;
-            mediaRecorder.stop();
-            setIsPlaying(false);
-        }, duration * 1000 + 500); // add half a second buffer
+        } catch (e) { alert(`Export failed: ${e.message}`); }
+        finally { setIsExporting(false); }
     };
 
     useImperativeHandle(ref, () => ({
         handleImportClick: handleUploadClick,
-        handleExport: handleExport,
-        undo,
-        redo,
-        canUndo,
-        canRedo
+        handleImportOverlay: handleImportOverlayClick,
+        handleExport, undo, redo, canUndo, canRedo,
+        setActiveOverlay, setActiveClipId, onUpdateClip: handleUpdateClip,
+        onUpdateClips: handleUpdateClips,
+        getClips: () => clips,
+        setClips: (c) => setClips(c),
+        getActiveClipId: () => activeClipId,
+        splitAtPlayhead, addTextClip: handleAddText,
+        handleImportImage: handleUploadClick,
+        handleImportAudio: handleAudioUploadClick,
     }));
 
-    // Keyboard shortcuts for Undo/Redo
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            
             if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-                if (e.shiftKey) {
-                    e.preventDefault();
-                    if (canRedo) redo();
-                } else {
-                    e.preventDefault();
-                    if (canUndo) undo();
+                e.preventDefault(); e.shiftKey ? redo() : undo();
+            }
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (activeClipId) {
+                    deleteClip(activeClipId);
+                    setActiveClipId(null);
                 }
             }
-            if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
-                e.preventDefault();
-                if (canRedo) redo();
-            }
         };
-
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [undo, redo, canUndo, canRedo]);
+    }, [undo, redo]);
 
-    const formatTime = (seconds) => {
-        if (!seconds || isNaN(seconds)) return '00:00:00';
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = Math.floor(seconds % 60);
-        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    };
-
-    const handleClipClick = (clip) => {
-        seek(clip.startPosition / 100);
-        setIsPlaying(false);
+    const handleClipClick = (clipId) => {
+        setActiveClipId(clipId);
+        const clip = clips.find(c => c.id === clipId);
+        if (clip) {
+            seek(clip.startPosition / 100);
+            if (clip.type === 'text') setSelectedTextClip(clip);
+            else setSelectedTextClip(null);
+        }
     };
 
     return (
-        <div 
-            className="flex-1 flex flex-col h-full bg-gray-950 overflow-hidden relative"
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-        >
-            {isDraggingOver && (
-                <div className="absolute inset-0 z-[100] bg-indigo-500/20 border-4 border-dashed border-indigo-500 rounded-lg flex items-center justify-center p-8 backdrop-blur-sm pointer-events-none">
-                    <div className="bg-gray-900 px-8 py-6 rounded-2xl shadow-2xl flex flex-col items-center">
-                        <Upload className="w-16 h-16 text-indigo-400 mb-4 animate-bounce" />
-                        <h2 className="text-2xl font-bold text-white mb-2">Drop Media Here</h2>
-                        <p className="text-gray-400 text-center">Videos, audio, and images are supported.</p>
-                    </div>
-                </div>
-            )}
+        <div className="flex-1 flex flex-col h-full bg-gray-950 overflow-hidden relative"
+             onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
             
             {isExporting && (
-                <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center backdrop-blur-sm">
-                    <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
-                    <h3 className="text-xl font-bold text-white mb-2">Exporting Video...</h3>
-                    <p className="text-gray-400">Please wait while we render your masterpiece. Do not close this tab.</p>
+                <div className="fixed inset-0 bg-black/80 z-[1000] flex flex-col items-center justify-center backdrop-blur-md">
+                    <Loader2 className="w-16 h-16 text-indigo-500 animate-spin mb-4" />
+                    <h2 className="text-2xl font-bold text-white">Exporting Video...</h2>
+                    <p className="text-gray-400 mt-2">Hold tight, we're rendering your masterpiece in the cloud.</p>
                 </div>
             )}
-            
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept="video/*,image/*"
-                multiple
-                className="hidden"
-                onChange={handleFileSelect}
-            />
-            <input
-                ref={audioInputRef}
-                type="file"
-                accept="audio/*"
-                multiple
-                className="hidden"
-                onChange={handleAudioSelect}
-            />
+
+            {isDraggingOver && (
+                <div className="absolute inset-0 z-[100] bg-indigo-500/20 border-4 border-dashed border-indigo-500 flex items-center justify-center pointer-events-none">
+                    <h2 className="text-2xl font-bold text-white">Drop Media Here</h2>
+                </div>
+            )}
+
+            <input ref={fileInputRef} type="file" accept="video/*,image/*" multiple className="hidden" onChange={handleFileSelect} />
+            <input ref={audioInputRef} type="file" accept="audio/*" multiple className="hidden" onChange={handleAudioSelect} />
 
             <div className="flex-1 flex flex-col min-h-0 relative">
-                <TextToolbar
-                    onAddText={handleAddText}
-                    selectedTextClip={selectedTextClip}
-                    onUpdateTextClip={handleUpdateTextClip}
-                />
+                {showTextToolbar && (
+                    <TextToolbar onAddText={handleAddText} selectedTextClip={selectedTextClip} onUpdateTextClip={handleUpdateClip} />
+                )}
+                
+                <button 
+                    onClick={() => setShowTextToolbar(!showTextToolbar)}
+                    className="absolute top-4 right-4 z-[50] p-2 bg-gray-900/80 backdrop-blur-md border border-gray-700 rounded-xl text-gray-400 hover:text-white transition-all shadow-lg"
+                    title={showTextToolbar ? "Hide Toolbar" : "Show Toolbar"}
+                >
+                    <Type size={18} />
+                </button>
 
                 <VideoPreview
-                    currentVideo={currentVideo}
-                    videoRef={videoRef}
-                    isPlaying={isPlaying}
-                    handlePlayPause={togglePlayPause}
-                    currentTime={currentTime}
-                    duration={duration}
-                    handleUploadClick={handleUploadClick}
-                    seek={seek}
-                    clips={clips}
-                    onUpdateTextClip={handleUpdateTextClip}
+                    currentVideo={currentVideo} videoRef={videoRef} isPlaying={isPlaying}
+                    handlePlayPause={togglePlayPause} currentTime={currentTime} duration={duration}
+                    handleUploadClick={handleUploadClick} clips={clips}
                     onUpdateClip={handleUpdateClip}
+                    onUpdateClips={handleUpdateClips}
+                    activeClipId={activeClipId} activeOverlay={activeOverlay}
+                    onCloseOverlay={() => setActiveOverlay(null)}
                 />
 
-                <div className="h-16 border-t border-gray-800 bg-gray-950 flex items-center justify-center gap-8 px-4 relative z-20 flex-shrink-0">
-                    <button
-                        className="p-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-xl transition-colors disabled:opacity-50"
-                        disabled={clips.length === 0}
-                        onClick={() => seek(Math.max(0, currentTime - 5))}
-                    >
-                        <SkipBack className="w-5 h-5" />
+                {textPromptOpen && (
+                    <div className="absolute inset-0 z-[60] bg-black/70 flex items-center justify-center p-6">
+                        <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-72 shadow-2xl">
+                            <h3 className="text-sm font-bold text-white mb-4">Add Text</h3>
+                            <input autoFocus type="text" id="text-input" className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white mb-4" />
+                            <div className="flex gap-2">
+                                <button onClick={() => setTextPromptOpen(false)} className="flex-1 py-2 text-gray-400">Cancel</button>
+                                <button onClick={() => { handleAddText(document.getElementById('text-input').value); setTextPromptOpen(false); }} className="flex-1 py-2 bg-indigo-600 text-white rounded-xl">Add</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div className="h-16 border-t border-gray-800 bg-gray-950 flex items-center justify-center gap-8 px-4 flex-shrink-0">
+                    <button className="text-gray-400 hover:text-white" onClick={() => seek(Math.max(0, currentTime - 5))}><SkipBack /></button>
+                    <button className="p-4 bg-white text-black rounded-full" onClick={togglePlayPause}>
+                        {isPlaying ? <Pause /> : <Play className="ml-1" />}
                     </button>
-                    <button
-                        className="p-4 bg-white text-black rounded-full hover:bg-gray-200 hover:scale-105 transition-all shadow-lg shadow-white/10 active:scale-95 disabled:opacity-50"
-                        onClick={togglePlayPause}
-                        disabled={clips.length === 0}
-                    >
-                        {isPlaying ? (
-                            <Pause className="w-6 h-6 fill-current" />
-                        ) : (
-                            <Play className="w-6 h-6 fill-current ml-1" />
-                        )}
-                    </button>
-                    <button
-                        className="p-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-xl transition-colors disabled:opacity-50"
-                        disabled={clips.length === 0}
-                        onClick={() => seek(Math.min(duration, currentTime + 5))}
-                    >
-                        <SkipForward className="w-5 h-5" />
-                    </button>
+                    <button className="text-gray-400 hover:text-white" onClick={() => seek(Math.min(duration, currentTime + 5))}><SkipForward /></button>
                 </div>
             </div>
 
-            {/* Timeline Resizer Handle */}
-            <div 
-                className="h-1.5 flex-shrink-0 cursor-row-resize hover:bg-indigo-500 bg-gray-800 transition-colors z-30"
-                onMouseDown={() => {
-                    isDraggingTimeline.current = true;
-                    document.body.style.cursor = 'row-resize';
-                }}
-            />
+            <div className="h-1.5 flex-shrink-0 cursor-row-resize hover:bg-indigo-500 bg-gray-800" onMouseDown={() => setIsDraggingTimeline(true)} />
 
-            {/* Timeline Area */}
-            <div 
-                style={{ 
-                    height: `${timelineHeight}px`,
-                    transition: isDraggingTimeline.current ? 'none' : 'height 300ms ease-in-out'
-                }} 
-                className="flex-shrink-0 flex flex-col bg-gray-950 relative z-20"
-            >
+            <div style={{ height: `${timelineHeight}px` }} className="flex-shrink-0 flex flex-col bg-gray-950 relative overflow-hidden">
                 <Timeline 
-                    zoom={zoom}
-                    setZoom={setZoom}
-                    clips={clips}
-                    currentVideo={currentVideo}
-                    currentTime={currentTime}
-                    duration={duration}
-                    onClipClick={handleClipClick}
-                    onClipMouseDown={handleClipMouseDown}
-                    onClipResizeMouseDown={handleResizeMouseDown}
-                    onSeek={seek}
-                    timelineRef={timelineRef}
-                    handleUploadClick={handleUploadClick}
-                    handleAudioUpload={handleAudioUploadClick}
-                    onSplit={() => splitClip(currentTime)}
+                    zoom={zoom} setZoom={setZoom} clips={clips} currentVideo={currentVideo}
+                    activeClip={clips.find(c => c.id === activeClipId)} 
+                    activeClipId={activeClipId}
+                    currentTime={currentTime} duration={duration}
+                    onClipClick={handleClipClick} onClipMouseDown={handleClipMouseDown}
+                    onClipResizeMouseDown={handleResizeMouseDown} onSeek={seek} timelineRef={timelineRef}
+                    handleUploadClick={handleUploadClick} handleAudioUpload={handleAudioUploadClick}
+                    onSplit={splitAtPlayhead}
                     onDelete={() => {
-                        if (currentVideo) deleteClip(currentVideo.id);
+                        const activeClip = clips.find(c => c.id === activeClipId);
+                        if (activeClip) deleteClip(activeClip.id);
                     }}
                 />
             </div>
