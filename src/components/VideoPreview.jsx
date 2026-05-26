@@ -4,12 +4,14 @@ import { Rnd } from 'react-rnd';
 
 // ─── Crop Overlay ───────────────────────────────────────────────────
 const ASPECTS = [
-    { label: 'Free', value: 'free' },
-    { label: '16:9', value: '16/9' },
-    { label: '9:16', value: '9/16' },
-    { label: '1:1', value: '1/1' },
-    { label: '4:3', value: '4/3' },
-    { label: '3:4', value: '3/4' },
+    { label: 'Original', value: 'free', icon: '⧉' },
+    { label: '9:16', value: '9/16', icon: '📱' },
+    { label: '1:1', value: '1/1', icon: '📸' },
+    { label: '16:9', value: '16/9', icon: '📺' },
+    { label: '4:5', value: '4/5', icon: '🖼️' },
+    { label: '2:3', value: '2/3', icon: '📄' },
+    { label: '4:3', value: '4/3', icon: '🖥️' },
+    { label: '3:4', value: '3/4', icon: '📐' },
 ];
 
 const CropOverlay = ({ clip, onApply, onClose }) => {
@@ -40,14 +42,15 @@ const CropOverlay = ({ clip, onApply, onClose }) => {
 
                 <div className="mt-4 pt-4 border-t border-gray-800">
                     <p className="text-[10px] text-gray-500 mb-3 uppercase tracking-widest font-bold">Aspect Ratio (Main Stage)</p>
-                    <div className="grid grid-cols-3 gap-2 mb-4">
+                    <div className="grid grid-cols-4 gap-2 mb-4">
                         {ASPECTS.map(a => (
                             <button key={a.value} onClick={() => { setAspect(a.value); onApply({ aspect: a.value }); }}
-                                className={`p-2 rounded-lg text-xs font-medium border transition-all ${
+                                className={`p-1.5 flex flex-col items-center justify-center rounded-lg text-[10px] font-medium border transition-all ${
                                     aspect === a.value
-                                        ? 'bg-indigo-600 border-indigo-500 text-white'
-                                        : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-indigo-500/60'
+                                        ? 'bg-white text-black border-white'
+                                        : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-white/40'
                                 }`}>
+                                <span className="text-sm mb-0.5">{a.icon}</span>
                                 {a.label}
                             </button>
                         ))}
@@ -214,14 +217,18 @@ const TransitionsPanel = ({ clip, onApply, onClose }) => (
     </div>
 );
 
-const VideoElement = ({ url, currentTime, isPlaying, muted, startPosition, videoOffset = 0 }) => {
+const VideoElement = ({ url, currentTime, isPlaying, muted, startPosition, videoOffset = 0, aspect, playbackRate = 1.0, hasBorder = false }) => {
     const videoRef = useRef(null);
-    const clipTime = ((currentTime * 100 - startPosition) / 100) + videoOffset;
+    const clipTime = (((currentTime * 100 - startPosition) / 100) * playbackRate) + videoOffset;
 
     useEffect(() => {
         if (!videoRef.current) return;
         const video = videoRef.current;
         
+        if (video.playbackRate !== playbackRate) {
+            video.playbackRate = Math.max(0.1, playbackRate);
+        }
+
         // Parallel Sync with drift compensation
         if (clipTime >= 0) {
             const drift = Math.abs(video.currentTime - clipTime);
@@ -248,7 +255,7 @@ const VideoElement = ({ url, currentTime, isPlaying, muted, startPosition, video
         <video 
             ref={videoRef}
             src={url} 
-            className="w-full h-full object-contain pointer-events-none" 
+            className={`w-full h-full pointer-events-none ${(aspect && aspect !== 'free') || hasBorder ? 'object-cover' : 'object-contain'}`} 
             muted={muted}
             playsInline
         />
@@ -308,17 +315,52 @@ const VideoPreview = ({
 
         const baseOpacity = (clip.opacity !== undefined ? clip.opacity : 100) / 100;
         let transOpacity = 1;
+        let transTranslateY = 0;
+        let transTranslateX = 0;
+        let scaleProgress = 1;
+
         if (currentTime >= start && currentTime < start + transDur && clip.transitionIn && clip.transitionIn !== 'none') {
-            transOpacity = (currentTime - start) / transDur;
+            const progress = (currentTime - start) / transDur;
+            if (clip.transitionIn === 'fade') {
+                transOpacity = progress;
+            } else if (clip.transitionIn === 'scale') {
+                transOpacity = progress;
+                scaleProgress = 0.5 + 0.5 * progress;
+            } else if (clip.transitionIn === 'slide') {
+                transTranslateX = -100 * (1 - progress); // slide in from left side
+            }
         } else if (currentTime > end - transDur && currentTime <= end && clip.transitionOut && clip.transitionOut !== 'none') {
-            transOpacity = (end - currentTime) / transDur;
+            const progress = (end - currentTime) / transDur;
+            if (clip.transitionOut === 'fade') {
+                transOpacity = progress;
+            } else if (clip.transitionOut === 'scale') {
+                transOpacity = progress;
+                scaleProgress = 0.5 + 0.5 * progress;
+            } else if (clip.transitionOut === 'slide') {
+                transTranslateX = 100 * (1 - progress); // slide out to right side
+            }
         }
 
-        let popTransform = '';
+        const t = clip.transform || {};
+        const rot = t.rotation || 0;
+        let scaleX = (t.scale !== undefined ? t.scale : 100) / 100.0;
+        let scaleY = scaleX;
+        
+        if (t.flipH) scaleX *= -1;
+        if (t.flipV) scaleY *= -1;
+
+        // Apply scale transitions
+        scaleX *= scaleProgress;
+        scaleY *= scaleProgress;
+
         if (clip.hasPopIn && clipTime < 0.5) {
             const progress = clipTime / 0.5;
-            popTransform = ` scale(${0.5 + 0.5 * progress})`;
+            const popScale = 0.5 + 0.5 * progress;
+            scaleX *= popScale;
+            scaleY *= popScale;
         }
+
+        const combinedTransform = `translate(${transTranslateX}%, ${transTranslateY}%) rotate(${rot}deg) scale(${scaleX}, ${scaleY})`;
 
         return {
             filter: clip.cssFilter || 'none',
@@ -326,7 +368,7 @@ const VideoPreview = ({
             mixBlendMode: clip.blendMode || 'normal',
             border: clip.hasBorder ? '4px solid white' : 'none',
             boxShadow: clip.hasBorder ? '0 10px 30px rgba(0,0,0,0.5)' : 'none',
-            transform: popTransform,
+            transform: combinedTransform,
             transition: 'filter 0.2s ease',
             pointerEvents: 'none'
         };
@@ -352,10 +394,14 @@ const VideoPreview = ({
             >
                 <div className="absolute inset-0 bg-black/50" />
 
-                {/* Unified Media Layer (Track 0 to N) - Excluding Audio */}
+                {/* Unified Media Layer (Track 0 to N). Text guaranteed on top. */}
                 {activeClips
                     .filter(c => c.type !== 'audio')
-                    .sort((a,b) => (a.trackIndex||0) - (b.trackIndex||0))
+                    .sort((a,b) => {
+                        const layerA = a.type === 'text' ? 999 : (a.trackIndex || 0);
+                        const layerB = b.type === 'text' ? 999 : (b.trackIndex || 0);
+                        return layerA - layerB;
+                    })
                     .map(clip => {
                     const style = getClipStyle(clip);
                     const isBase = (clip.trackIndex || 0) === 0;
@@ -371,6 +417,7 @@ const VideoPreview = ({
                             className={`z-10 ${activeClipId === clip.id ? 'outline outline-2 outline-indigo-500 shadow-2xl' : 'hover:outline hover:outline-1 hover:outline-white/20'} flex items-center justify-center group`}
                             size={{ width: pW, height: pH }}
                             position={{ x: pX, y: pY }}
+                            lockAspectRatio={clip.crop?.aspect && clip.crop.aspect !== 'free' ? (Number(clip.crop.aspect.split('/')[0]) / Number(clip.crop.aspect.split('/')[1])) : false}
                             onDragStop={(e, d) => {
                                 onUpdateClip(clip.id, {
                                     x: (d.x / playerSize.width) * 100,
@@ -394,25 +441,30 @@ const VideoPreview = ({
                             }}
                             bounds="parent"
                             onClick={(e) => { e.stopPropagation(); setActiveClipId(clip.id); }}
-                            style={{ zIndex: 10 + (clip.trackIndex || 0) }}
+                            style={{ zIndex: clip.type === 'text' ? 50 : 10 + (clip.trackIndex || 0) }}
                         >
                             <div className="w-full h-full relative overflow-hidden" style={style}>
                                 {clip.type === 'text' ? (
                                     <div 
                                         className="w-full h-full flex items-center justify-center p-2 text-center break-words select-none"
                                         style={{ 
+                                            fontFamily: clip.fontFamily || 'Inter, sans-serif',
                                             fontSize: `${clip.fontSize || 48}px`,
                                             color: clip.color || '#fff',
                                             fontWeight: clip.fontWeight || 'normal',
                                             fontStyle: clip.fontStyle || 'normal',
-                                            textShadow: '0 2px 10px rgba(0,0,0,0.5)',
+                                            textShadow: clip.textShadow || '0 4px 15px rgba(0,0,0,0.8)',
+                                            WebkitTextStroke: clip.textStroke || 'none',
+                                            backgroundColor: clip.textBgColor || 'transparent',
+                                            padding: clip.textBgColor ? '10px 20px' : '0',
+                                            borderRadius: clip.textBgColor ? '12px' : '0',
                                             lineHeight: 1.2
                                         }}
                                     >
                                         {clip.text}
                                     </div>
                                 ) : clip.type === 'image' ? (
-                                    <img src={clip.url} className="w-full h-full pointer-events-none object-contain" alt="Clip" />
+                                    <img src={clip.url} className={`w-full h-full pointer-events-none ${clip.crop?.aspect && clip.crop.aspect !== 'free' ? 'object-cover' : 'object-contain'}`} alt="Clip" />
                                 ) : (
                                     <VideoElement 
                                         url={clip.url} 
@@ -421,6 +473,9 @@ const VideoPreview = ({
                                         muted={clip.muted}
                                         startPosition={clip.startPosition}
                                         videoOffset={clip.videoOffset || 0}
+                                        aspect={clip.crop?.aspect}
+                                        playbackRate={clip.playbackRate || 1.0}
+                                        hasBorder={clip.hasBorder}
                                     />
                                 )}
                             </div>
@@ -431,7 +486,43 @@ const VideoPreview = ({
                 {activeOverlay === 'crop' && (
                     <CropOverlay
                         clip={liveActiveClip}
-                        onApply={(data) => liveActiveClip && onUpdateClip(liveActiveClip.id, { crop: data })}
+                        onApply={(data) => {
+                            if (!liveActiveClip) return;
+                            const next = { crop: { ...(liveActiveClip.crop || {}), ...data } };
+                            
+                            // Adjust Rnd boundaries automatically based on the selected aspect ratio
+                            if (data.aspect && data.aspect !== 'free') {
+                                const [n, d] = data.aspect.split('/').map(Number);
+                                const targetRatio = n / d;
+                                const screenRatio = playerSize.width / playerSize.height;
+
+                                let wPc = 100;
+                                let hPc = 100;
+
+                                if (targetRatio > screenRatio) {
+                                    // wider than canvas, bound by width
+                                    wPc = 100;
+                                    hPc = (playerSize.width / targetRatio) / playerSize.height * 100;
+                                } else {
+                                    // taller than canvas, bound by height
+                                    hPc = 100;
+                                    wPc = (playerSize.height * targetRatio) / playerSize.width * 100;
+                                }
+
+                                next.width = wPc;
+                                next.height = hPc;
+                                next.x = (100 - wPc) / 2;
+                                next.y = (100 - hPc) / 2;
+                            } else if (data.aspect === 'free') {
+                                // Default back to matching the canvas perfectly
+                                next.width = 100;
+                                next.height = 100;
+                                next.x = 0;
+                                next.y = 0;
+                            }
+                            
+                            onUpdateClip(liveActiveClip.id, next);
+                        }}
                         onClose={onCloseOverlay}
                     />
                 )}

@@ -9,7 +9,7 @@ const QUICK_ACTIONS = [
     },
     { icon: Captions, label: 'Auto-Captions', prompt: 'Analyze the audio and generate perfectly timed captions with vibecoded colors and transitions matching the beat. Keep all existing video/audio clips.' },
     { icon: MicVocal, label: 'Lyrics Overlay', prompt: 'Detect and transcribe any song lyrics or spoken words in the video, then place stylized text overlays synced to the music beats with matching vibes.' },
-    { icon: Zap, label: 'Vibe Edit', prompt: 'Analyze the mood and energy of the audio. Apply energetic text overlays that match the tempo and feel of the music with fitting colors and animations.' },
+    { icon: Zap, label: 'Vibe Edit', prompt: 'Analyze the mood and energy of the audio. Apply energetic text overlays and use slow motion (playbackRate: 0.5) or fast motion (playbackRate: 2.0) on standard video segments to match the music tempo.' },
     { icon: Wand2, label: 'Auto Trim', prompt: 'Remove any silent or low-energy sections from the timeline, keeping only the best moments.' },
 ];
 

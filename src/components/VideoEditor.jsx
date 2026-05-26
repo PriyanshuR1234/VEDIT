@@ -336,7 +336,8 @@ const VideoEditor = forwardRef((props, ref) => {
             opacity: 100,
             cssFilter: '',
             fontSize: 48, color: '#ffffff',
-            fontFamily: 'Inter', fontWeight: 'bold'
+            fontFamily: 'Inter', fontWeight: 'bold',
+            x: 10, y: 70, width: 80, height: 20
         };
         addClips([newClip]);
         setActiveClipId(id);
@@ -377,8 +378,36 @@ const VideoEditor = forwardRef((props, ref) => {
         if (clips.length === 0) { alert("No clips on timeline to export!"); return; }
         setIsExporting(true);
         
-        // Match the canvas orientation (laptop = landscape)
-        const isLandscape = window.innerWidth > window.innerHeight;
+        let isLandscape = true;
+        const baseVideo = clips.find(c => c.type === 'video' && c.trackIndex <= 0);
+        const baseImage = clips.find(c => c.type === 'image' && c.trackIndex <= 0);
+        
+        try {
+            if (baseVideo) {
+                const videoEl = document.createElement('video');
+                videoEl.src = baseVideo.url;
+                await new Promise((resolve) => {
+                    videoEl.onloadedmetadata = () => resolve();
+                    videoEl.onerror = () => resolve();
+                });
+                if (videoEl.videoWidth && videoEl.videoHeight) {
+                    isLandscape = videoEl.videoWidth >= videoEl.videoHeight;
+                }
+            } else if (baseImage) {
+                const imgEl = new Image();
+                imgEl.src = baseImage.url;
+                await new Promise((resolve) => {
+                    imgEl.onload = () => resolve();
+                    imgEl.onerror = () => resolve();
+                });
+                if (imgEl.naturalWidth && imgEl.naturalHeight) {
+                    isLandscape = imgEl.naturalWidth >= imgEl.naturalHeight;
+                }
+            } else {
+                isLandscape = window.innerWidth > window.innerHeight;
+            }
+        } catch(e) { console.warn('Could not determine media aspect ratio', e); }
+
         const exportWidth = isLandscape ? 1920 : 1080;
         const exportHeight = isLandscape ? 1080 : 1920;
 
@@ -394,7 +423,8 @@ const VideoEditor = forwardRef((props, ref) => {
                         muted: c.muted, hasPopIn: c.hasPopIn, hasBorder: c.hasBorder,
                         cssFilter: c.cssFilter, opacity: c.opacity || 100, text: c.text,
                         videoOffset: c.videoOffset || 0, volume: c.volume || 100,
-                        trackIndex: c.trackIndex || 0
+                        trackIndex: c.trackIndex || 0,
+                        transform: c.transform, crop: c.crop
                     })),
                     settings: { width: exportWidth, height: exportHeight, fps: 30 }
                 })

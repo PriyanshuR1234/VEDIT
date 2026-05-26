@@ -22,11 +22,13 @@ const PropertiesPanel = ({ activeClip, onUpdateClip, onUpdateClips, onOpenOverla
 
     const opacity = activeClip.opacity !== undefined ? activeClip.opacity : 100;
     const volume = activeClip.volume !== undefined ? Math.round(activeClip.volume * 100) : 100;
+    const playbackRate = activeClip.playbackRate || 1.0;
     const blendMode = activeClip.blendMode || 'normal';
 
     // Local state for smooth dragging
     const [localOpacity, setLocalOpacity] = React.useState(opacity);
     const [localVolume, setLocalVolume] = React.useState(volume);
+    const [localPlaybackRate, setLocalPlaybackRate] = React.useState(playbackRate);
 
     React.useEffect(() => {
         setLocalOpacity(opacity);
@@ -35,6 +37,10 @@ const PropertiesPanel = ({ activeClip, onUpdateClip, onUpdateClips, onOpenOverla
     React.useEffect(() => {
         setLocalVolume(volume);
     }, [volume]);
+
+    React.useEffect(() => {
+        setLocalPlaybackRate(playbackRate);
+    }, [playbackRate]);
 
     const handleOpacityChange = (e) => {
         const val = parseInt(e.target.value);
@@ -46,6 +52,32 @@ const PropertiesPanel = ({ activeClip, onUpdateClip, onUpdateClips, onOpenOverla
         const val = parseInt(e.target.value);
         setLocalVolume(val);
         handleChange('volume', val / 100);
+    };
+
+    const handlePlaybackRateChange = (e) => {
+        const sliderVal = parseFloat(e.target.value);
+        let speed = 1.0;
+        if (sliderVal <= 1.0) {
+            speed = 0.25 + (sliderVal * 0.75); // Slider [0..1] -> [0.25..1]
+        } else {
+            speed = 1.0 + ((sliderVal - 1.0) * 3.0); // Slider [1..2] -> [1..4]
+        }
+        
+        // Snap to exactly 1.0 if very close to middle
+        if (sliderVal > 0.95 && sliderVal < 1.05) {
+            speed = 1.0;
+        }
+        
+        setLocalPlaybackRate(speed);
+        handleChange('playbackRate', speed);
+    };
+
+    const getSliderValue = (speed) => {
+        if (speed <= 1.0) {
+            return (speed - 0.25) / 0.75;
+        } else {
+            return 1.0 + (speed - 1.0) / 3.0;
+        }
     };
 
     return (
@@ -86,6 +118,35 @@ const PropertiesPanel = ({ activeClip, onUpdateClip, onUpdateClips, onOpenOverla
               />
             </div>
 
+            {activeClip.type === 'video' && (
+                <div className="space-y-4 relative group/prop">
+                  <div className="flex items-center justify-between px-1">
+                    <h3 className="text-sm font-medium text-gray-300">Speed</h3>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded">{localPlaybackRate.toFixed(2)}x</span>
+                    </div>
+                  </div>
+                  <div className="relative pt-2">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="2" 
+                      step="0.01"
+                      value={getSliderValue(localPlaybackRate)}
+                      onChange={handlePlaybackRateChange}
+                      className="w-full accent-indigo-500 bg-gray-800 h-1.5 rounded-lg appearance-none cursor-pointer relative z-10" 
+                    />
+                    {/* Visual notch for 1x */}
+                    <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-0.5 h-2 bg-gray-500 rounded-full pointer-events-none z-0"></div>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-gray-500 font-mono px-1">
+                      <span>0.25x</span>
+                      <span>1x</span>
+                      <span>4x</span>
+                  </div>
+                </div>
+            )}
+
             {(activeClip.type === 'video' || activeClip.type === 'audio') && (
                 <div className="space-y-4 relative group/prop">
                   <div className="flex items-center justify-between px-1">
@@ -112,9 +173,58 @@ const PropertiesPanel = ({ activeClip, onUpdateClip, onUpdateClips, onOpenOverla
                 </div>
             )}
 
+            {activeClip.type === 'text' && (
+                <div className="space-y-4 pt-2 border-t border-gray-800">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold px-1 mb-2">Text Styling</p>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                            <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider px-1">Font Family</label>
+                            <select 
+                                value={activeClip.fontFamily || 'Inter, sans-serif'}
+                                onChange={(e) => handleChange('fontFamily', e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-800 text-xs text-gray-300 rounded-xl px-3 py-2.5 outline-none focus:border-indigo-500 transition-all cursor-pointer"
+                            >
+                                <option value="Inter, sans-serif">Inter</option>
+                                <option value="Impact, sans-serif">Impact</option>
+                                <option value="Helvetica, Arial, sans-serif">Helvetica</option>
+                                <option value="'Courier New', Courier, monospace">Courier</option>
+                                <option value="'Times New Roman', Times, serif">Times New</option>
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider px-1">Font Weight</label>
+                            <select 
+                                value={activeClip.fontWeight || 'normal'}
+                                onChange={(e) => handleChange('fontWeight', e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-800 text-xs text-gray-300 rounded-xl px-3 py-2.5 outline-none focus:border-indigo-500 transition-all cursor-pointer"
+                            >
+                                <option value="normal">Normal</option>
+                                <option value="bold">Bold</option>
+                                <option value="900">Black / 900</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                        <button 
+                            onClick={() => handleChange('textStroke', activeClip.textStroke && activeClip.textStroke !== 'none' ? 'none' : '3px black')}
+                            className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${activeClip.textStroke && activeClip.textStroke !== 'none' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-gray-900 border-gray-800 text-gray-400 hover:border-gray-700'}`}
+                        >
+                            Outline (Stroke)
+                        </button>
+                        <button 
+                            onClick={() => handleChange('textBgColor', activeClip.textBgColor ? '' : 'rgba(0,0,0,0.5)')}
+                            className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${activeClip.textBgColor ? 'bg-white border-white text-black' : 'bg-gray-900 border-gray-800 text-gray-400 hover:border-gray-700'}`}
+                        >
+                            BG Highlight
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {(activeClip.type === 'video' || activeClip.type === 'image' || activeClip.type === 'text') && (
-                <div className="space-y-4">
+                <div className="space-y-4 pt-2 border-t border-gray-800">
                   <h3 className="text-sm font-medium text-gray-300 px-1">Blend Mode</h3>
+
                   <select 
                     value={blendMode}
                     onChange={(e) => handleChange('blendMode', e.target.value)}
