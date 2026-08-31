@@ -15,6 +15,10 @@
 
 [**Features**](#-features) · [**Quick Start**](#-quick-start) · [**Architecture**](#-architecture) · [**API Docs**](#-api-reference) · [**How it Works**](#-how-ai-editing-works)
 
+<br/>
+<video src="./demo.mp4" autoplay loop muted playsinline width="100%" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></video>
+<br/>
+
 </div>
 
 ## 🚀 One-Click Demo (Easiest Method)
